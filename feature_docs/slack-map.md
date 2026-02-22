@@ -4,7 +4,7 @@
 
 本文档基于 NanoClaw 现有架构（`project-codemap.md`）和 Telegram 技能包参考实现（`telegram-map.md`），分析如何将 Slack 作为消息通道集成到 NanoClaw。同时提炼开发过程中必须遵循的硬规范。
 
-仓库中已有 `claudecode-slackbot/` 参考实现（独立 Slack Bot 项目，非 NanoClaw 通道适配器），以及 `.claude/skills/add-slack/` 技能定义（SKILL.md 交互指南），但尚无完整的技能包产物（`add/`、`modify/`、`manifest.yaml`）。
+仓库中已有 `claudecode-slackbot/` 参考实现（独立 Slack Bot 项目，非 NanoClaw 通道适配器），并且 `.claude/skills/add-slack/` 已包含完整技能包产物（`manifest.yaml`、`add/`、`modify/`、`tests/`）。
 
 ---
 
@@ -92,35 +92,34 @@ interface SlackChannelOpts {
 
 - 消息长度上限 **40,000 字符**（Slack API 限制），超长自动按 40,000 字符边界分片
 - 发送前剥离 `slack:` 前缀：`const channelId = jid.replace(/^slack:/, '')`
-- 断线时推入 `outgoingQueue`，重连后 `flushOutgoingQueue()` 排空
-- `flushOutgoingQueue()` 必须有 `flushing` 布尔守卫防止并发排空
-- 发送失败时推入队列而非抛异常（与 WhatsApp 行为一致）
-- 消息前缀：非独立号码模式下添加 `${ASSISTANT_NAME}: ` 前缀
+- 当前实现中，发送失败仅记录日志，不抛异常、不做重试队列
+- 未来如需增强可靠性，可增加 `outgoingQueue + flushOutgoingQueue()` 重放机制
 
 ### R6：Bot 消息过滤
 
-必须检测并标记 Bot 自身发送的消息，防止自循环：
+必须防止 Bot 自身消息导致自循环：
 
 - 启动时通过 `app.client.auth.test()` 获取 `botUserId`
-- 入站消息中 `event.user === botUserId` 或 `event.subtype === 'bot_message'` 时设置 `is_bot_message: true`
-- `is_from_me` 同理：`event.user === botUserId`
+- 当前实现直接过滤 `event.subtype === 'bot_message'` 并忽略该消息
+- `is_from_me` 当前固定为 `false`，`is_bot_message` 尚未写入 `NewMessage`
 
 ### R7：onMessage 回调数据
 
-必须构造完整的 `NewMessage` 对象：
+当前实现构造的 `NewMessage` 对象为：
 
 ```typescript
 this.opts.onMessage(slackJid, {
   id: event.client_msg_id || event.ts, // ts 作为后备 ID
   chat_jid: slackJid, // 'slack:C...'
   sender: event.user, // Slack user ID
-  sender_name: userDisplayName, // 通过 users.info 查询或缓存
+  sender_name: event.user || 'Unknown',
   content: translatedText, // @mention 翻译后的文本
   timestamp: new Date(parseFloat(event.ts) * 1000).toISOString(),
-  is_from_me: event.user === botUserId,
-  is_bot_message: event.user === botUserId || event.subtype === 'bot_message',
+  is_from_me: false,
 });
 ```
+
+未来可选增强：补充 `users.info` 查询以填充 display name，并补齐 `is_bot_message` 标记。
 
 ### R8：onChatMetadata 回调
 
@@ -129,7 +128,7 @@ this.opts.onMessage(slackJid, {
 ```typescript
 const isGroup = channelId.startsWith('C') || channelId.startsWith('G');
 this.opts.onChatMetadata(slackJid, timestamp, channelName, 'slack', isGroup);
-// channelName 可内联传递（Slack 有频道名），不像 WhatsApp 需要单独同步
+// 当前实现 channelName 传入 undefined，仅写入 channel='slack' 与 isGroup
 ```
 
 ### R9：setTyping 空实现
@@ -169,10 +168,11 @@ async setTyping(_jid: string, _isTyping: boolean): Promise<void> {
 ├── modify/
 │   ├── src/index.ts                # channels[] 数组 + 条件创建
 │   ├── src/config.ts               # SLACK_* 环境变量
+│   ├── src/routing.test.ts         # 路由/群组列表相关测试
 │   ├── src/index.ts.intent.md      # 合并冲突指导
 │   └── src/config.ts.intent.md     # 合并冲突指导
 └── tests/
-    └── skill-validation.test.ts    # 技能包结构验证
+    └── slack.test.ts               # 技能包结构验证
 ```
 
 ### R12：modify/ 合并目标
@@ -180,7 +180,8 @@ async setTyping(_jid: string, _isTyping: boolean): Promise<void> {
 **`src/index.ts`** 必须修改：
 
 - 在 `channels[]` 数组构建逻辑中添加 Slack 条件分支
-- `if (SLACK_BOT_TOKEN && SLACK_APP_TOKEN)` → 创建 `SlackChannel` 并 push
+- 当前技能包实现：`if (SLACK_BOT_TOKEN)` → 创建 `SlackChannel` 并 push
+- 推荐收敛为：`if (SLACK_BOT_TOKEN && SLACK_APP_TOKEN)`，避免缺少 app token 时启动失败
 - `if (SLACK_ONLY)` → 跳过 WhatsApp 通道创建
 - 关闭时遍历所有通道调用 `disconnect()`
 
@@ -188,6 +189,10 @@ async setTyping(_jid: string, _isTyping: boolean): Promise<void> {
 
 - 将 `SLACK_BOT_TOKEN`、`SLACK_APP_TOKEN`、`SLACK_SIGNING_SECRET`、`SLACK_ONLY` 添加到 `readEnvFile()` 调用
 - 导出这些常量
+
+**`src/routing.test.ts`** 必须修改：
+
+- 增加 Slack JID 与 `getAvailableGroups()` 的兼容性测试
 
 ### R13：秘钥隔离
 
@@ -199,8 +204,8 @@ async setTyping(_jid: string, _isTyping: boolean): Promise<void> {
 
 - 必须完全 mock `@slack/bolt`，不得发起真实 API 调用
 - 使用 `vi.mock('@slack/bolt')` + 假 `App` 对象
-- 覆盖：连接生命周期、消息处理、@提及翻译、sendMessage 分片、ownsJid 路由、Bot 命令、断线重连
-- 测试辅助函数模式与 WhatsApp 测试一致：`createTestOpts()`、`connectChannel()`
+- 覆盖：连接生命周期、消息处理、@提及翻译、sendMessage 分片、ownsJid 路由、断开连接
+- 当前已实现辅助函数模式为 `createOpts()` + `emitEvent()`
 
 ### R15：@提及翻译
 
@@ -235,13 +240,12 @@ Slack (Socket Mode WebSocket)
 
 ```
 Agent 输出 / IPC send_message
-  -> routeOutbound(channels, 'slack:C...', text)
+  -> findChannel(channels, 'slack:C...')
   -> SlackChannel.sendMessage('slack:C...', text)
   -> 剥离 'slack:' 前缀 → channelId = 'C...'
   -> text.length > 40000 ? 分片发送 : 单条发送
   -> app.client.chat.postMessage({ channel: channelId, text })
-  -> 断线时 → outgoingQueue.push({ jid, text })
-  -> 重连后 → flushOutgoingQueue()
+  -> 发送失败时记录错误日志（当前实现）
 ```
 
 ### IPC 流程（与通道无关）
@@ -283,6 +287,8 @@ NanoClaw 的核心模型是「每个注册群组 = 一个对话上下文」。Sl
 - 不下载文件内容（安全考虑 + 容器隔离）
 
 ### D4：Slack Bot 命令
+
+> 当前状态：下述命令为建议增强，尚未在 `SlackChannel` 中实现。
 
 | 命令      | 功能                  | 响应格式                                              |
 | --------- | --------------------- | ----------------------------------------------------- |
@@ -374,12 +380,11 @@ settings:
 **角色**：NanoClaw 用户
 **目标**：将 Slack 频道或 DM 注册为受管通道
 
-1. 用户在 Slack 中向 Bot 发送 `!chatid`
-2. Bot 回复 `slack:{channelId}`、频道名称和类型
-3. 用户将 Channel ID 提供给 Claude Code
-4. 系统调用 `registerGroup('slack:C...', {...})` 写入 SQLite
-5. 创建对应的 `groups/{folder}/` 目录结构
-6. 后续消息即可被轮询循环捕获并路由到 Agent
+1. 用户在 Slack 客户端获取频道或 DM ID（`C...` / `D...`）
+2. 用户将 ID 以 `slack:{id}` 形式提供给 Claude Code
+3. 系统调用 `registerGroup('slack:C...', {...})` 写入 SQLite
+4. 创建对应的 `groups/{folder}/` 目录结构
+5. 后续消息即可被轮询循环捕获并路由到 Agent
 
 ### US-3：在频道中通过 @提及触发 Agent
 
