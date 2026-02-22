@@ -407,20 +407,209 @@ NanoClaw 的架构设计天然规避了参考实现中的多个复杂边界：
 
 ---
 
-## 9. 实现优先级矩阵
+## 9. OSS 实战失效模式（来自 bolt-js 真实 Issue）
+
+本节基于 `slackapi/bolt-js` 仓库的真实 Issue 和 PR，记录官方文档未充分覆盖的生产级失效模式。每条均附原始 Issue 链接。
+
+---
+
+### 9.1 Socket Mode 下 `app_mention` 偶发多次触发
+
+**症状**：同一条消息触发 `app_mention` 2～5 次，日志中可见 `retry_attempt: 1, retry_reason: timeout`，但 ack 已发送且 WebSocket 状态为 OPEN。
+
+**根因**：Slack 后端在 ack 发出后仍未收到确认（网络抖动、WebSocket 帧丢失），触发服务端重试。每次重试携带相同 `envelope_id` 但 `retry_attempt` 递增。Bolt 自动 ack 机制在 Socket Mode 下无法完全防止此情况。
+
+**证据**（[bolt-js #2487](https://github.com/slackapi/bolt-js/issues/2487)）：
+```
+13:21:35: retry_attempt:0, retry_reason:""
+13:21:39: retry_attempt:1, retry_reason:"timeout"   ← 同一 envelope_id
+13:21:50: retry_attempt:0, retry_reason:""           ← 新的重试周期
+```
+
+**缓解**：在处理器入口用 `envelope_id` 做幂等去重（内存 Set 或 SQLite 唯一约束）。NanoClaw 的 SQLite 轮询架构通过 `ts` 唯一写入天然规避，但若改用 Socket Mode 推送则必须显式去重。
+
+**目标文档覆盖**：§4.5 提及去重但未说明 Socket Mode 下 ack 已发送仍会重试的机制。
+
+---
+
+### 9.2 `too_many_websockets` 导致进程崩溃
+
+**症状**：启动时或运行中收到 `disconnect reason: too_many_websockets`，随即抛出未捕获异常 `Unhandled event 'server explicit disconnect' in state 'connecting'`，进程退出。
+
+**根因**：Slack 每个 App-Level Token 限制同时连接数（通常 10 个）。旧进程未正常退出（本地开发、容器重启）时连接数耗尽。Bolt 3.19～3.21 的状态机在 `connecting` 状态收到 `server explicit disconnect` 时无处理分支，直接抛出。
+
+**证据**（[bolt-js #2238](https://github.com/slackapi/bolt-js/issues/2238)，[bolt-js #2021](https://github.com/slackapi/bolt-js/issues/2021)，[bolt-js #2225](https://github.com/slackapi/bolt-js/issues/2225)）：
+```
+Error: Unhandled event 'server explicit disconnect' in state 'connecting'.
+  at StateMachine.handleUnhandledEvent (finity/lib/core/StateMachine.js:76)
+```
+
+**缓解**：
+1. 进程退出时调用 `await app.stop()` 确保 WebSocket 正常关闭
+2. 监听 `process.on('SIGTERM')` / `SIGINT` 触发优雅关闭
+3. 在 App-Level Token 管理页面撤销旧 token 再重新生成，可立即清空僵尸连接
+4. 升级 `@slack/bolt` ≥ 4.x（状态机已修复该分支）
+
+**目标文档覆盖**：§4.1 提及 `refresh_requested` 由 Bolt 处理，但未覆盖 `too_many_websockets` 导致进程崩溃的场景。
+
+---
+
+### 9.3 Socket Mode 长时间空闲后静默失联
+
+**症状**：Bot 运行正常，24 小时以上无消息后停止响应。日志中出现 `disconnect reason: warning` → 重连循环，但新消息不再触发处理器。重启后恢复正常。
+
+**根因**：Slack 定期发送 `disconnect warning` 要求客户端刷新连接。Bolt 会创建第二条连接并切换，但在某些网络环境（DNS 解析失败、NAT 超时）下，重连的 `apps.connections.open` 调用失败后状态机进入不一致状态，不再处理事件但也不报错。
+
+**证据**（[bolt-js #1061](https://github.com/slackapi/bolt-js/issues/1061)，[bolt-js #820](https://github.com/slackapi/bolt-js/issues/820)）：
+```
+[INFO] A ping wasn't received from the server before the timeout of 30000ms!
+[INFO] unable to Socket Mode start: getaddrinfo ENOTFOUND slack.com
+// 之后进程存活但不处理任何事件
+```
+
+**缓解**：
+1. 添加应用层心跳检测：定期（如每 5 分钟）检查最后一次事件时间戳，超过阈值则主动重启连接
+2. 使用进程监控（systemd `Restart=always`、PM2 `--restart-delay`）在进程卡死时自动重启
+3. 监听 Bolt 的 `error` 事件并在 `slack_socket_mode_no_reply_received_error` 时触发重连
+
+**目标文档覆盖**：§4.1 提及「事件丢失窗口」，但未覆盖静默失联（进程存活但不处理事件）的场景。
+
+---
+
+### 9.4 多实例部署下 Socket Mode 事件分发不均
+
+**症状**：水平扩展时（2 个实例），事件不是广播到所有实例，而是 Slack 随机选择一个实例投递。某些事件在两个实例都未收到（存在僵尸连接时）。
+
+**根因**：Socket Mode 的设计是「每个事件只投递给一个连接」（非广播）。多实例时 Slack 按连接轮询，不保证均匀分布。若存在僵尸连接，该连接可能消费事件但不处理，导致事件丢失。
+
+**证据**（[bolt-js #2327](https://github.com/slackapi/bolt-js/issues/2327)，官方回复）：
+> When multiple connections are active, each payload may be sent to any of the connections. It's best not to assume any particular pattern for how payloads will be distributed across multiple open connections.
+
+**缓解**：Socket Mode 不适合水平扩展。多实例场景应改用 HTTP Events API + 外部消息队列（SQS、Redis Streams）。NanoClaw 单进程设计不受此影响。
+
+**目标文档覆盖**：未覆盖。
+
+---
+
+### 9.5 `message_changed` 子类型触发意外处理
+
+**症状**：Bot 对用户消息正常响应后，Slack 因 URL unfurl（链接预览展开）触发 `message_changed` 事件，Bot 再次处理同一消息，产生重复响应。
+
+**根因**：Slack 在消息中检测到 URL 并展开预览时，会发送 `message_changed` 子类型事件，`text` 字段与原消息相同。若 `app.message` 处理器未过滤 `subtype`，会重复触发。
+
+**证据**（[bolt-js #2327](https://github.com/slackapi/bolt-js/issues/2327) 官方回复）：
+> The `message_changed` event can be triggered for several reasons. If no one edits a message in your workspace, one possible cause could be when Slack unfurls preview attachments for either a URL or an uploaded file.
+
+**缓解**：
+```typescript
+app.message(async ({ message, next }) => {
+  // 过滤所有带 subtype 的消息（message_changed, message_deleted, bot_message 等）
+  if ('subtype' in message && message.subtype) return;
+  await next();
+});
+```
+
+**目标文档覆盖**：§6.4 建议「静默忽略 `message_changed`」，但未说明 URL unfurl 是触发原因，也未提供过滤代码。
+
+---
+
+### 9.6 有状态正则表达式（`/g`、`/y` 标志）导致处理器间歇失效
+
+**症状**：`app.command(/pattern/g, ...)` 第一次调用正常，第二次调用超时并返回 `operation_timeout`，之后交替正常/超时。日志显示 `An incoming event was not acknowledged within 3 seconds`，但处理器代码从未被执行。
+
+**根因**：JavaScript 的 `/g`（global）和 `/y`（sticky）标志使 `RegExp` 对象有状态（`lastIndex` 在每次 `test()` 后更新）。Bolt 内部用 `pattern.test(candidate)` 匹配路由，第一次匹配后 `lastIndex` 前进，第二次从错误位置开始匹配，导致路由失败，事件未被任何处理器接收，3 秒后超时。
+
+**证据**（[bolt-js #1058](https://github.com/slackapi/bolt-js/issues/1058)，[bolt-js #2021](https://github.com/slackapi/bolt-js/issues/2021)）：
+```javascript
+// 错误：/g 标志使 lastIndex 有状态
+app.command(/(\/hello-dev|\/hello)/g, async ({ ack }) => { await ack(); });
+
+// 正确：无状态标志
+app.command(/^\/(hello-dev|hello).*/, async ({ ack }) => { await ack(); });
+```
+
+**缓解**：所有传入 Bolt 的正则表达式禁止使用 `/g` 和 `/y` 标志。若需动态构建正则，使用 `new RegExp(pattern, 'i')` 而非 `new RegExp(pattern, 'gi')`。
+
+**目标文档覆盖**：未覆盖。这是一个纯 JavaScript 语言陷阱，官方文档无警告。
+
+---
+
+### 9.7 `team_join` 等平台事件重复投递（服务端问题）
+
+**症状**：`team_join` 事件对同一用户触发 3 次：2 次几乎同时，1 次延迟数分钟。三次事件的 `event_ts` 完全相同，`envelope_id` 不同。
+
+**根因**：Slack 服务端的事件投递机制在某些情况下（新用户加入、Bot 加入等）会多次发送相同事件。这是平台行为，非 Bolt 缺陷。`event_ts` 相同但 `envelope_id` 不同，因此 Bolt 的 envelope 去重无效。
+
+**证据**（[bolt-js #2556](https://github.com/slackapi/bolt-js/issues/2556)）：三次事件 payload 完全相同，`event_ts: '1748493074.019700'` 一致。
+
+**缓解**：对有副作用的操作（发送欢迎消息、写数据库）使用 `event_ts` + `user_id` 组合做幂等键，而非依赖 `envelope_id`。
+
+**目标文档覆盖**：§4.5 提及「事件可能重复投递」，但未说明 `event_ts` 相同时 envelope 去重失效的情况。
+
+---
+
+### 9.8 `assistant.userMessage` 无限循环（特定消息内容触发）
+
+**症状**：使用 Slack AI Assistant API 时，特定消息内容（含特殊字符、多行格式）导致 `assistant.userMessage` 事件持续重复触发，可持续数小时，即使重启应用也会继续收到历史事件。
+
+**根因**：Slack 后端在处理 Assistant 消息时存在服务端重试循环，与消息内容有关（已确认为 Slack 平台 bug）。重启应用不能停止，因为事件已在 Slack 后端队列中。
+
+**证据**（[bolt-js #2668](https://github.com/slackapi/bolt-js/issues/2668)）：
+> Even if I rerun slack run while the issue is active, the app keeps receiving past events, which suggests the problem lies in Slack's backend processing.
+
+**缓解**：
+1. 在 `assistant.userMessage` 处理器中记录已处理的 `message.ts`，检测到重复时直接返回
+2. 添加每用户每线程的速率限制（如 10 次/分钟），超限后停止响应
+3. 这是平台 bug，目前无完全可靠的客户端缓解方案
+
+**目标文档覆盖**：未覆盖（NanoClaw 当前不使用 Assistant API，但若未来集成需注意）。
+
+---
+
+### 9.9 WebSocket pong 超时导致连接中断但不自动恢复
+
+**症状**：日志中出现大量 `A pong wasn't received from the server before the timeout of 5000ms!`，随后 `Failed to send a WebSocket message as the client is not ready`，应用停止响应约 60 秒后自动恢复，但期间所有事件丢失。
+
+**根因**：Bolt 的 Socket Mode 客户端每 5 秒发送一次 ping，若 5 秒内未收到 pong 则记录警告。连续多次 pong 超时后触发重连，但重连期间（通常 30～60 秒）无法发送 ack，导致 Slack 重试所有未 ack 的事件，重连后收到事件洪峰。
+
+**证据**（[bolt-js #2496](https://github.com/slackapi/bolt-js/issues/2496)）：连续 19 次 pong 超时后出现 `Failed to send a message as the client has no active connection`。
+
+**缓解**：
+1. 监听 Bolt 的 `error` 事件，在 `slack_socket_mode_no_reply_received_error` 时记录告警
+2. 重连后的事件洪峰需要幂等处理（§9.1 的去重机制）
+3. 检查容器/网络环境的 NAT 超时设置（通常 < 30 秒的 NAT 超时会导致此问题）
+
+**目标文档覆盖**：§4.1 提及「断连到重连之间的事件可能丢失」，但未说明 pong 超时的具体机制和重连后的事件洪峰问题。
+
+---
+
+### 9.10 HTTP 模式下 `X-Slack-Retry-Num` 未处理导致重复执行
+
+**症状**：HTTP Events API 模式下，处理器执行时间超过 3 秒（如调用 LLM），Slack 重试请求，Bot 对同一消息响应 2～3 次。
+
+**根因**：Slack 要求 HTTP 端点在 3 秒内返回 200。若处理器异步执行超时，Slack 发送带 `X-Slack-Retry-Num: 1` 和 `X-Slack-Retry-Reason: http_timeout` 的重试请求。若不检测此 header，处理器会重复执行。
+
+**证据**（[bolt-js #914](https://github.com/slackapi/bolt-js/issues/914)）：Lambda 日志显示两次完整的处理器执行，第二次请求 header 中含 `X-Slack-Retry-Num: 1`。
+
+**缓解**：
+```typescript
+// HTTP 模式下在中间件中过滤重试
+app.use(async ({ payload, next, logger }) => {
+  const retryNum = (payload as any).headers?.['x-slack-retry-num'];
+  if (retryNum) {
+    logger.info(`Skipping retry attempt ${retryNum}`);
+    return; // 不调用 next()，直接丢弃
+  }
+  await next();
+});
+```
+
+Socket Mode 下 Bolt 自动处理 ack，此问题不适用。NanoClaw 使用 Socket Mode，但若切换到 HTTP 模式则必须实现此过滤。
+
+**目标文档覆盖**：§3.2 提及重试策略，但未说明 HTTP 模式下需主动过滤 `X-Slack-Retry-Num`。
+
+---
+
+## 10. 实现优先级矩阵
 
 基于风险和用户影响的实现优先级：
-
-| 优先级 | 边界情况 | 风险 | 实现复杂度 |
-| --- | --- | --- | --- |
-| P0（必须） | Bot 消息过滤 | 无限循环 | 低 |
-| P0（必须） | 消息分片（40k） | 消息丢失 | 低 |
-| P0（必须） | `connect()` 错误处理 | 启动失败无反馈 | 低 |
-| P1（应该） | 429 速率限制处理 | API 封禁 | 中 |
-| P1（应该） | 状态消息（处理中） | 用户体验差 | 中 |
-| P1（应该） | 已归档/只读频道检测 | 静默失败 | 低 |
-| P2（可选） | 交互模式 | 便利性 | 高 |
-| P2（可选） | 文件上传支持 | 功能完整性 | 高 |
-| P2（可选） | Markdown → mrkdwn 转换 | 显示美观 | 中 |
-| P3（延后） | Token 撤销监听 | 安全加固 | 低 |
-| P3（延后） | Slack Connect 支持 | 企业场景 | 高 |
