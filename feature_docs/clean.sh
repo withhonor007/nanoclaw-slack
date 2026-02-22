@@ -8,6 +8,7 @@
 #   ./feature_docs/clean.sh build        # 仅清理构建产物
 #   ./feature_docs/clean.sh deps         # 重装依赖
 #   ./feature_docs/clean.sh skill [name] # 卸载技能并清理残留
+#   ./feature_docs/clean.sh ipc          # 清理 IPC 临时文件
 #   ./feature_docs/clean.sh container    # 重建容器镜像
 #   ./feature_docs/clean.sh data         # 清理运行时数据（危险）
 #   ./feature_docs/clean.sh nuke         # 核弹级清理：全部重来
@@ -71,9 +72,13 @@ clean_test_cache() {
 clean_deps() {
   info "清理并重装 node_modules (当前大小: $(dir_size node_modules))..."
   rm -rf node_modules/
-  rm -f package-lock.json
-  info "执行 npm install..."
-  npm install --no-audit --no-fund
+  if [[ -f package-lock.json ]]; then
+    info "检测到 package-lock.json，执行 npm ci..."
+    npm ci --no-audit --no-fund
+  else
+    info "未检测到 package-lock.json，执行 npm install..."
+    npm install --no-audit --no-fund
+  fi
   ok "依赖重装完成"
 }
 
@@ -88,34 +93,27 @@ clean_skill_state() {
     info "卸载技能: $skill_name"
     if [[ -f scripts/uninstall-skill.ts ]]; then
       npx tsx scripts/uninstall-skill.ts "$skill_name" || {
-        warn "自动卸载失败，手动清理状态文件..."
-        if [[ -f .nanoclaw/state.yaml ]]; then
-          # 从 state.yaml 中移除该技能记录
-          sed -i.bak "/$skill_name/d" .nanoclaw/state.yaml
-          rm -f .nanoclaw/state.yaml.bak
+        warn "自动卸载失败，无法保证 .nanoclaw 状态一致性"
+        if confirm "是否删除整个 .nanoclaw 状态目录以确保一致性？"; then
+          rm -rf .nanoclaw/
+          ok ".nanoclaw/ 已删除"
+        else
+          warn "已跳过状态目录删除，请手动检查 .nanoclaw/state.yaml"
         fi
       }
     else
       warn "uninstall-skill.ts 不存在，直接清理状态"
       rm -rf .nanoclaw/
     fi
-    
-    # 清理技能添加的源文件
-    case "$skill_name" in
-      slack)
-        rm -f src/channels/slack.ts src/channels/slack.test.ts
-        info "已删除 src/channels/slack.ts 和测试文件"
-        ;;
-      telegram)
-        rm -f src/channels/telegram.ts src/channels/telegram.test.ts
-        info "已删除 src/channels/telegram.ts 和测试文件"
-        ;;
-      *)
-        warn "未知技能 '$skill_name'，请手动检查是否有残留文件"
-        ;;
-    esac
+
     ok "技能 $skill_name 清理完成"
   fi
+}
+
+clean_ipc() {
+  info "清理 IPC 临时目录..."
+  rm -rf data/ipc/
+  ok "data/ipc/ 已删除"
 }
 
 clean_container() {
@@ -172,8 +170,15 @@ clean_logs() {
 }
 
 clean_data() {
+  local wipe_auth="${1:-false}"
+
   warn "⚠️  这将删除运行时数据（SQLite 数据库、认证信息、会话）"
-  warn "   包括: store/messages.db, store/auth/, data/env/"
+  warn "   包括: store/messages.db, data/env/, data/ipc/, auth 状态文件"
+  if [[ "$wipe_auth" == "true" ]]; then
+    warn "   并删除: store/auth/（会导致 WhatsApp 需要重新认证）"
+  else
+    warn "   注意: 默认保留 store/auth/（不会清除 WhatsApp 登录态）"
+  fi
   echo ""
   if ! confirm "确定要清理运行时数据吗？这不可逆！"; then
     info "已取消"
@@ -182,8 +187,14 @@ clean_data() {
   
   rm -f store/messages.db
   rm -rf data/env/
+  rm -rf data/ipc/
   rm -f store/auth-status.txt store/qr-auth.html store/qr-data.txt
-  ok "运行时数据已清除（认证信息保留在 store/auth/）"
+  if [[ "$wipe_auth" == "true" ]]; then
+    rm -rf store/auth/
+    ok "运行时数据已清除（含 store/auth/）"
+  else
+    ok "运行时数据已清除（认证信息保留在 store/auth/）"
+  fi
 }
 
 clean_git_untracked() {
@@ -229,8 +240,9 @@ do_nuke() {
   clean_build
   clean_test_cache
   clean_skill_state
+  clean_ipc
   clean_logs
-  clean_data
+  clean_data true
   clean_container
   clean_deps
   clean_env_sync
@@ -250,11 +262,13 @@ show_menu() {
   echo -e "  ${CYAN}2${NC})  test        清理测试缓存 (vitest, coverage)"
   echo -e "  ${CYAN}3${NC})  deps        删除并重装 node_modules"
   echo -e "  ${CYAN}4${NC})  skill       卸载技能并清理残留"
-  echo -e "  ${CYAN}5${NC})  container   清理并重建容器镜像"
-  echo -e "  ${CYAN}6${NC})  env         重新同步 .env 到容器环境"
-  echo -e "  ${CYAN}7${NC})  logs        清理日志文件"
-  echo -e "  ${CYAN}8${NC})  all         全量清理（不含运行时数据）"
-  echo -e "  ${YELLOW}9${NC})  data        清理运行时数据 ${RED}(危险)${NC}"
+  echo -e "  ${CYAN}5${NC})  ipc         清理 IPC 临时目录 (data/ipc/)"
+  echo -e "  ${CYAN}6${NC})  container   清理并重建容器镜像"
+  echo -e "  ${CYAN}7${NC})  env         重新同步 .env 到容器环境"
+  echo -e "  ${CYAN}8${NC})  logs        清理日志文件"
+  echo -e "  ${CYAN}9${NC})  git         清理 .gitignore 忽略的未跟踪文件"
+  echo -e "  ${YELLOW}d${NC})  data        清理运行时数据 ${RED}(危险)${NC}"
+  echo -e "  ${CYAN}a${NC})  all         全量清理（不含运行时数据）"
   echo -e "  ${RED}0${NC})  nuke        核弹级清理 ${RED}(极度危险)${NC}"
   echo -e "  ${CYAN}q${NC})  退出"
   echo ""
@@ -265,7 +279,7 @@ show_menu() {
   echo -e "  store:        $(dir_size store)"
   echo -e "  .nanoclaw:    $(dir_size .nanoclaw)"
   echo ""
-  echo -en "选择操作 [1-9/0/q]: "
+  echo -en "选择操作 [1-9/a/d/0/q]: "
   read -r choice
   echo ""
   
@@ -278,11 +292,13 @@ show_menu() {
       read -r sname
       clean_skill_state "$sname"
       ;;
-    5) clean_container ;;
-    6) clean_env_sync ;;
-    7) clean_logs ;;
-    8) do_all ;;
-    9) clean_data ;;
+    5) clean_ipc ;;
+    6) clean_container ;;
+    7) clean_env_sync ;;
+    8) clean_logs ;;
+    9) clean_git_untracked ;;
+    d|D) clean_data ;;
+    a|A) do_all ;;
     0) do_nuke ;;
     q|Q) exit 0 ;;
     *) err "无效选择" ;;
@@ -306,9 +322,11 @@ main() {
     test)     clean_test_cache ;;
     deps)     clean_deps ;;
     skill)    clean_skill_state "$arg" ;;
+    ipc)      clean_ipc ;;
     container) clean_container ;;
     env)      clean_env_sync ;;
     logs)     clean_logs ;;
+    git)      clean_git_untracked ;;
     all)      do_all ;;
     data)     clean_data ;;
     nuke)     do_nuke ;;
@@ -320,9 +338,11 @@ main() {
       echo "  test        清理测试缓存"
       echo "  deps        删除并重装 node_modules"
       echo "  skill [name] 卸载技能（留空清理全部状态）"
+      echo "  ipc         清理 IPC 临时目录 (data/ipc/)"
       echo "  container   清理并重建容器镜像"
       echo "  env         同步 .env 到容器环境"
       echo "  logs        清理日志"
+      echo "  git         清理 .gitignore 忽略的未跟踪文件"
       echo "  all         全量清理（不含数据）"
       echo "  data        清理运行时数据（危险）"
       echo "  nuke        核弹级全量清理"
