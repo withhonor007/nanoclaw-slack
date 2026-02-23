@@ -10,7 +10,6 @@ import {
   SLACK_APP_TOKEN,
   SLACK_BOT_TOKEN,
   SLACK_ONLY,
-  SLACK_SIGNING_SECRET,
   TRIGGER_PATTERN,
 } from './config.js';
 import { SlackChannel } from './channels/slack.js';
@@ -449,7 +448,6 @@ async function main(): Promise<void> {
     const slack = new SlackChannel(
       SLACK_BOT_TOKEN,
       SLACK_APP_TOKEN,
-      SLACK_SIGNING_SECRET,
       channelOpts,
     );
     channels.push(slack);

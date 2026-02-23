@@ -76,7 +76,7 @@ interface SlackChannelOpts {
   registeredGroups: () => Record<string, RegisteredGroup>;
 }
 
-// 构造：new SlackChannel(botToken, appToken, signingSecret, opts)
+// 构造：new SlackChannel(botToken, appToken, opts)
 ```
 
 ### R4：connect() 模式
@@ -149,7 +149,7 @@ async setTyping(_jid: string, _isTyping: boolean): Promise<void> {
 | ---------------------- | ------- | ---- | ----------------------------------------------- |
 | `SLACK_BOT_TOKEN`      | string  | 是   | Bot OAuth Token（`xoxb-...`）                   |
 | `SLACK_APP_TOKEN`      | string  | 是   | App-Level Token（`xapp-...`），Socket Mode 必需 |
-| `SLACK_SIGNING_SECRET` | string  | 是   | 请求签名验证密钥                                |
+| `SLACK_SIGNING_SECRET` | string  | 否   | Socket Mode 不需要（仅 HTTP 模式使用），已从构造函数移除 |
 | `SLACK_ONLY`           | boolean | 否   | 为 `true` 时跳过 WhatsApp 通道创建              |
 
 所有变量通过 `readEnvFile()` 从 `.env` 读取，遵循 `process.env` → `envConfig` 回退链。容器环境需同步到 `data/env/env`。
@@ -187,7 +187,7 @@ async setTyping(_jid: string, _isTyping: boolean): Promise<void> {
 
 **`src/config.ts`** 必须修改：
 
-- 将 `SLACK_BOT_TOKEN`、`SLACK_APP_TOKEN`、`SLACK_SIGNING_SECRET`、`SLACK_ONLY` 添加到 `readEnvFile()` 调用
+ 将 `SLACK_BOT_TOKEN`、`SLACK_APP_TOKEN`、`SLACK_ONLY` 添加到 `readEnvFile()` 调用（`SLACK_SIGNING_SECRET` Socket Mode 不需要）
 - 导出这些常量
 
 **`src/routing.test.ts`** 必须修改：
@@ -305,7 +305,7 @@ NanoClaw 的核心模型是「每个注册群组 = 一个对话上下文」。Sl
 | -------------- | -------------------------- | ------------------------------------------------- |
 | SDK            | `grammy`                   | `@slack/bolt@^4.4.0`                              |
 | 连接模式       | 长轮询（`bot.start()`）    | Socket Mode（WebSocket）                          |
-| Token 数量     | 1（`TELEGRAM_BOT_TOKEN`）  | 3（`BOT_TOKEN` + `APP_TOKEN` + `SIGNING_SECRET`） |
+| Token 数量     | 1（`TELEGRAM_BOT_TOKEN`）  | 2（`BOT_TOKEN` + `APP_TOKEN`；`SIGNING_SECRET` Socket Mode 不需要） |
 | JID 前缀       | `tg:`                      | `slack:`                                          |
 | 消息长度限制   | 4,096 字符                 | 40,000 字符                                       |
 | 打字指示器     | `sendChatAction('typing')` | 不支持（空实现）                                  |

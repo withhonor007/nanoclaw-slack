@@ -11,8 +11,8 @@ const envConfig = readEnvFile([
   'ASSISTANT_HAS_OWN_NUMBER',
   'SLACK_BOT_TOKEN',
   'SLACK_APP_TOKEN',
-  'SLACK_SIGNING_SECRET',
   'SLACK_ONLY',
+  'SLACK_FILTER_BOT_MESSAGES',
 ]);
 
 export const ASSISTANT_NAME =
@@ -77,7 +77,7 @@ export const SLACK_BOT_TOKEN =
   process.env.SLACK_BOT_TOKEN || envConfig.SLACK_BOT_TOKEN || '';
 export const SLACK_APP_TOKEN =
   process.env.SLACK_APP_TOKEN || envConfig.SLACK_APP_TOKEN || '';
-export const SLACK_SIGNING_SECRET =
-  process.env.SLACK_SIGNING_SECRET || envConfig.SLACK_SIGNING_SECRET || '';
 export const SLACK_ONLY =
   (process.env.SLACK_ONLY || envConfig.SLACK_ONLY) === 'true';
+export const SLACK_FILTER_BOT_MESSAGES =
+  (process.env.SLACK_FILTER_BOT_MESSAGES || envConfig.SLACK_FILTER_BOT_MESSAGES || 'true') === 'true';

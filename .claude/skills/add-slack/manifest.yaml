@@ -11,12 +11,12 @@ modifies:
   - src/routing.test.ts
 structured:
   npm_dependencies:
-    "@slack/bolt": "^4.4.0"
+    "@slack/bolt": "^4.6.0"
   env_additions:
     - SLACK_BOT_TOKEN
     - SLACK_APP_TOKEN
-    - SLACK_SIGNING_SECRET
     - SLACK_ONLY
+    - SLACK_FILTER_BOT_MESSAGES
 conflicts: []
 depends: []
 test: "npx vitest run src/channels/slack.test.ts"
