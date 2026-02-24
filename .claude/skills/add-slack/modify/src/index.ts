@@ -28,6 +28,7 @@ import {
   getAllTasks,
   getMessagesSince,
   getNewMessages,
+  hasBotResponseAfter,
   getRouterState,
   initDatabase,
   setRegisteredGroup,
@@ -138,6 +139,20 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   const missedMessages = getMessagesSince(chatJid, sinceTimestamp, ASSISTANT_NAME);
 
   if (missedMessages.length === 0) return true;
+
+  // If the bot already responded after the last pending user message, these
+  // messages were successfully processed via the pipe path in a previous
+  // container. Just advance the cursor without spawning a new container.
+  const lastMsgTs = missedMessages[missedMessages.length - 1].timestamp;
+  if (hasBotResponseAfter(chatJid, lastMsgTs)) {
+    lastAgentTimestamp[chatJid] = lastMsgTs;
+    saveState();
+    logger.debug(
+      { chatJid, messageCount: missedMessages.length },
+      'Bot already responded to piped messages, advancing cursor',
+    );
+    return true;
+  }
 
   // For non-main groups, check if trigger is required and present
   if (!isMainGroup && group.requiresTrigger !== false) {
@@ -370,9 +385,11 @@ async function startMessageLoop(): Promise<void> {
               { chatJid, count: messagesToSend.length },
               'Piped messages to active container',
             );
-            lastAgentTimestamp[chatJid] =
-              messagesToSend[messagesToSend.length - 1].timestamp;
-            saveState();
+            // Don't advance lastAgentTimestamp here — if the container exits
+            // before processing the piped message, drainGroup will re-check
+            // via processGroupMessages using the un-advanced cursor.
+            // Mark pending so drainGroup verifies processing after container exits.
+            queue.enqueueMessageCheck(chatJid);
             // Show typing indicator while the container processes the piped message
             channel.setTyping?.(chatJid, true)?.catch((err) =>
               logger.warn({ chatJid, err }, 'Failed to set typing indicator'),

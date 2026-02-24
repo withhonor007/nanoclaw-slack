@@ -252,6 +252,16 @@ export function getChatName(jid: string): string | null {
 }
 
 /**
+ * Check if the bot has already responded in a chat after a given timestamp.
+ * Used to detect messages that were piped to a container and successfully processed,
+ * preventing duplicate responses when drainGroup re-checks.
+ */
+export function hasBotResponseAfter(chatJid: string, sinceTimestamp: string): boolean {
+  const sql = `SELECT 1 FROM messages WHERE chat_jid = ? AND timestamp > ? AND is_bot_message = 1 LIMIT 1`;
+  return !!db.prepare(sql).get(chatJid, sinceTimestamp);
+}
+
+/**
  * Store a message with full content.
  * Only call this for registered groups where message history is needed.
  */

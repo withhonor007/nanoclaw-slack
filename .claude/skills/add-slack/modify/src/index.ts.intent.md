@@ -3,6 +3,7 @@
 ## What changed
 
 Refactored from single WhatsApp channel to multi-channel architecture using the `Channel` interface (same pattern as add-telegram skill).
+Also fixed a pipe-path race where `lastAgentTimestamp` could advance before a shutting-down container actually processed piped messages.
 
 ## Key sections
 
@@ -21,12 +22,14 @@ Refactored from single WhatsApp channel to multi-channel architecture using the 
 ### processGroupMessages()
 
 - Added: `findChannel(channels, chatJid)` lookup at the start
+- Added: `hasBotResponseAfter(chatJid, lastMsgTs)` fast-path before spawn; when true, advance cursor and skip duplicate processing
 - Changed: `whatsapp.setTyping()` → `channel.setTyping?.()` (optional chaining)
 - Changed: `whatsapp.sendMessage()` → `channel.sendMessage()` in output callback
 
 ### startMessageLoop()
 
 - Added: `findChannel(channels, chatJid)` lookup per group in message processing
+- Fixed race: when `queue.sendMessage()` succeeds, do not advance `lastAgentTimestamp`; enqueue a drain check instead so cursor only advances after verified processing
 - Changed: `whatsapp.setTyping()` → `channel.setTyping?.()` for typing indicators
 
 ### main()

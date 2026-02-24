@@ -30,3 +30,9 @@ bash: scripts/canary-checkpoint.sh: No such file or directory
 T+4h: PASS (triggers: parse_error)
 
 --- Waiting 14400s for T+8h checkpoint ---
+--- T+8h Checkpoint (2026-02-24T14:33:17Z) ---
+bash: scripts/canary-checkpoint.sh: No such file or directory
+
+T+8h: PASS (triggers: parse_error)
+
+--- Waiting 57600s for T+24h checkpoint ---
