@@ -5,10 +5,14 @@ core_version: 0.1.0
 adds:
   - src/channels/slack.ts
   - src/channels/slack.test.ts
+  - src/channels/reconnect-policy.ts
+  - scripts/slack/canary-checkpoint.sh
+  - scripts/slack/soak-monitor.sh
 modifies:
   - src/index.ts
   - src/config.ts
   - src/routing.test.ts
+  - src/db.ts
 structured:
   npm_dependencies:
     "@slack/bolt": "^4.6.0"

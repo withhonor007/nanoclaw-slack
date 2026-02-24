@@ -1,7 +1,14 @@
 import { App } from '@slack/bolt';
 import { WebClientEvent } from '@slack/web-api';
 
+import { calculateBackoff } from './reconnect-policy.js';
 import { ASSISTANT_NAME, TRIGGER_PATTERN } from '../config.js';
+import {
+  getLastGroupSync,
+  setLastGroupSync,
+  updateChatName,
+  updateRegisteredGroupName,
+} from '../db.js';
 import { logger } from '../logger.js';
 import {
   Channel,
@@ -9,6 +16,9 @@ import {
   OnInboundMessage,
   RegisteredGroup,
 } from '../types.js';
+
+const SLACK_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const SLACK_SYNC_SENTINEL = '__slack_sync__';
 
 export interface SlackChannelOpts {
   onMessage: OnInboundMessage;
@@ -29,7 +39,12 @@ export class SlackChannel implements Channel {
   private seenEvents = new Map<string, number>(); // key → expiry timestamp
   private lastEventTs = Date.now();
   private watchdogTimer: ReturnType<typeof setInterval> | null = null;
+  private syncTimerStarted = false;
+  private syncTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectAttempt = 0;
+  private isReconnecting = false;
+  private breakerOpen = false;
+  private readonly STALE_THRESHOLD = 12 * 60 * 1000; // 12 minutes (low-traffic safe)
 
   constructor(botToken: string, appToken: string, opts: SlackChannelOpts) {
     this.botToken = botToken;
@@ -43,9 +58,9 @@ export class SlackChannel implements Channel {
       socketMode: true,
       clientOptions: {
         retryConfig: {
-          retries: 3,
-          factor: 2,
-          randomize: true,
+          retries: 1, // Minimal Bolt-level retries; watchdog manages reconnection
+          factor: 1,
+          randomize: false,
         },
         rejectRateLimitedCalls: false,
       },
@@ -77,6 +92,28 @@ export class SlackChannel implements Channel {
     });
 
     await this.app.start();
+    // Socket-level liveness: update lastEventTs on connection events
+    // Bolt's SocketModeReceiver is an EventEmitter
+    const receiver = (
+      this.app as unknown as {
+        receiver?: { on?: (event: string, fn: () => void) => void };
+      }
+    ).receiver;
+    if (receiver?.on) {
+      receiver.on('connected', () => {
+        this.lastEventTs = Date.now();
+        logger.info(
+          { event: 'socket_connected', liveness_source: 'socket_event' },
+          'Socket connected',
+        );
+      });
+      receiver.on('disconnected', () => {
+        logger.warn(
+          { event: 'socket_disconnected', liveness_source: 'socket_event' },
+          'Socket disconnected',
+        );
+      });
+    }
 
     this.app.client.on(
       WebClientEvent.RATE_LIMITED,
@@ -99,6 +136,19 @@ export class SlackChannel implements Channel {
     this.connected = true;
     logger.info('Slack bot connected via Socket Mode');
     this.startWatchdog();
+    // Sync channel metadata on startup (respects 24h cache)
+    this.syncChannelMetadata().catch((err) =>
+      logger.error({ err }, 'Initial Slack channel sync failed'),
+    );
+    // Set up daily sync timer (only once)
+    if (!this.syncTimerStarted) {
+      this.syncTimerStarted = true;
+      this.syncTimer = setInterval(() => {
+        this.syncChannelMetadata().catch((err) =>
+          logger.error({ err }, 'Periodic Slack channel sync failed'),
+        );
+      }, SLACK_SYNC_INTERVAL_MS);
+    }
   }
 
   async sendMessage(jid: string, text: string): Promise<void> {
@@ -151,10 +201,69 @@ export class SlackChannel implements Channel {
       clearInterval(this.watchdogTimer);
       this.watchdogTimer = null;
     }
+    if (this.syncTimer) {
+      clearInterval(this.syncTimer);
+      this.syncTimer = null;
+    }
+    this.syncTimerStarted = false;
     if (!this.app) return;
     await this.app.stop();
     this.app = null;
     logger.info('Slack bot stopped');
+  }
+
+  async syncChannelMetadata(force = false): Promise<void> {
+    if (!this.app || !this.connected) return;
+
+    if (!force) {
+      const lastSync = getLastGroupSync(SLACK_SYNC_SENTINEL);
+      if (lastSync) {
+        const lastSyncTime = new Date(lastSync).getTime();
+        if (Date.now() - lastSyncTime < SLACK_SYNC_INTERVAL_MS) {
+          logger.debug(
+            { lastSync },
+            'Skipping Slack channel sync - synced recently',
+          );
+          return;
+        }
+      }
+    }
+
+    try {
+      logger.info('Syncing channel metadata from Slack...');
+      const registeredGroups = this.opts.registeredGroups();
+      let count = 0;
+      let cursor: string | undefined;
+
+      do {
+        const result: {
+          channels?: Array<{ id?: string; name?: string }>;
+          response_metadata?: { next_cursor?: string };
+        } = await this.app.client.conversations.list({
+          types: 'public_channel,private_channel',
+          exclude_archived: true,
+          limit: 200,
+          cursor,
+        });
+
+        for (const channel of result.channels || []) {
+          if (!channel.id || !channel.name) continue;
+          const jid = `slack:${channel.id}`;
+          updateChatName(jid, channel.name);
+          if (registeredGroups[jid]) {
+            updateRegisteredGroupName(jid, channel.name);
+          }
+          count++;
+        }
+
+        cursor = result.response_metadata?.next_cursor || undefined;
+      } while (cursor);
+
+      setLastGroupSync(SLACK_SYNC_SENTINEL);
+      logger.info({ count }, 'Slack channel metadata synced');
+    } catch (err) {
+      logger.error({ err }, 'Failed to sync Slack channel metadata');
+    }
   }
 
   async setTyping(jid: string, _isTyping: boolean): Promise<void> {
@@ -165,45 +274,89 @@ export class SlackChannel implements Channel {
   private startWatchdog(): void {
     this.watchdogTimer = setInterval(async () => {
       if (!this.connected || !this.app) return;
-      const staleDuration = Date.now() - this.lastEventTs;
-      const STALE_THRESHOLD = 3 * 60 * 1000; // 3 minutes
-      if (staleDuration > STALE_THRESHOLD) {
-        this.reconnectAttempt++;
-        const startTime = Date.now();
-        logger.warn(
-          {
-            event: 'socket_stale',
-            last_event_ts: this.lastEventTs,
-            reconnect_attempt: this.reconnectAttempt,
-            stale_duration_ms: staleDuration,
-          },
-          'Socket stale — triggering reconnect',
+      if (this.isReconnecting) {
+        logger.debug(
+          { event: 'reconnect_skipped', reason: 'in_flight' },
+          'Watchdog: reconnect in flight, skipping',
         );
-        try {
-          await this.app.stop();
-          await this.app.start();
-          this.lastEventTs = Date.now();
-          logger.info(
-            {
-              event: 'socket_reconnect',
-              reconnect_attempt: this.reconnectAttempt,
-              duration_ms: Date.now() - startTime,
-            },
-            'Socket reconnected successfully',
-          );
-        } catch (err) {
-          logger.error(
-            {
-              event: 'socket_reconnect',
-              reconnect_attempt: this.reconnectAttempt,
-              duration_ms: Date.now() - startTime,
-              err,
-            },
-            'Socket reconnect failed',
-          );
-        }
+        return;
       }
-    }, 60_000); // Check every 60 seconds
+      if (this.breakerOpen) {
+        logger.debug(
+          { event: 'reconnect_skipped', reason: 'breaker_open' },
+          'Watchdog: breaker open, skipping',
+        );
+        return;
+      }
+      const staleDuration = Date.now() - this.lastEventTs;
+      if (staleDuration <= this.STALE_THRESHOLD) return;
+      this.reconnectAttempt++;
+      const { delay_ms, should_retry } = calculateBackoff(
+        this.reconnectAttempt,
+      );
+
+      if (!should_retry) {
+        this.breakerOpen = true;
+        logger.error(
+          {
+            event: 'breaker_open',
+            attempt: this.reconnectAttempt,
+            stale_duration_ms: staleDuration,
+            breaker_state: 'open',
+          },
+          'Circuit breaker opened — max reconnect retries exceeded. Exiting for supervisor restart.',
+        );
+        process.exit(1);
+        return;
+      }
+
+      logger.warn(
+        {
+          event: 'socket_stale',
+          last_event_ts: this.lastEventTs,
+          reconnect_attempt: this.reconnectAttempt,
+          stale_duration_ms: staleDuration,
+          backoff_delay_ms: delay_ms,
+          breaker_state: 'closed',
+          liveness_source: 'watchdog',
+        },
+        `Socket stale for ${Math.round(staleDuration / 1000)}s — attempt ${this.reconnectAttempt} (backoff ${delay_ms}ms)`,
+      );
+
+      this.isReconnecting = true;
+      const reconnectStart = Date.now();
+      try {
+        await new Promise((resolve) => setTimeout(resolve, delay_ms));
+        await this.app.stop();
+        await this.app.start();
+        const duration = Date.now() - reconnectStart;
+        this.lastEventTs = Date.now();
+        logger.info(
+          {
+            event: 'socket_reconnect',
+            reconnect_attempt: this.reconnectAttempt,
+            duration_ms: duration,
+            breaker_state: 'closed',
+          },
+          `Reconnected in ${duration}ms`,
+        );
+        this.reconnectAttempt = 0;
+      } catch (err) {
+        const duration = Date.now() - reconnectStart;
+        logger.error(
+          {
+            event: 'socket_reconnect_failed',
+            reconnect_attempt: this.reconnectAttempt,
+            duration_ms: duration,
+            breaker_state: 'closed',
+            error: err instanceof Error ? err.message : String(err),
+          },
+          `Reconnect failed after ${duration}ms`,
+        );
+      } finally {
+        this.isReconnecting = false;
+      }
+    }, 60_000);
   }
 
   private isDuplicate(key: string): boolean {
@@ -311,6 +464,9 @@ export class SlackChannel implements Channel {
     if (!ts) return new Date().toISOString();
     const seconds = parseFloat(ts);
     if (Number.isNaN(seconds)) return new Date().toISOString();
-    return new Date(seconds * 1000).toISOString();
+    // Preserve full Slack ts precision by appending the raw ts as a suffix.
+    // This ensures same-millisecond messages remain uniquely ordered.
+    const isoBase = new Date(seconds * 1000).toISOString();
+    return `${isoBase}|${ts}`;
   }
 }

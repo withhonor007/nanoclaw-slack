@@ -1,0 +1,60 @@
+=== T8: Canary Checkpoint Script Evidence ===
+Timestamp: 2026-02-24T06:22:30Z
+
+Script created: scripts/canary-checkpoint.sh
+Executable: yes (chmod +x applied)
+
+--- Dry-run output ---
+{
+  "timestamp": "2026-02-24T06:22:09Z",
+  "pid": 615853,
+  "uptime_seconds": 455,
+  "criteria": {
+    "C1": { "name": "token_validity", "pass": true, "detail": "dry-run: skipping auth.test API call" },
+    "C2": { "name": "socket_reconnect_health", "pass": true, "detail": "reconnects/hour: 0, max_recovery_ms: 0" },
+    "C3": { "name": "rate_limit_recovery", "pass": true, "detail": "rate_limit_events: 0" },
+    "C4": { "name": "message_pipeline", "pass": true, "detail": "slack connected (1 connect events), service running (pid: 615853)" },
+    "C5": { "name": "stable_runtime", "pass": true, "detail": "uptime: 455s, breaker_open: 0, restarts: 0" }
+  },
+  "verdict": "PASS",
+  "rollback_triggers": []
+}
+
+--- Live run output ---
+{
+  "timestamp": "2026-02-24T06:22:22Z",
+  "pid": 615853,
+  "uptime_seconds": 468,
+  "criteria": {
+    "C1": { "name": "token_validity", "pass": true, "detail": "auth.test succeeded, team: URDD" },
+    "C2": { "name": "socket_reconnect_health", "pass": true, "detail": "reconnects/hour: 0, max_recovery_ms: 0" },
+    "C3": { "name": "rate_limit_recovery", "pass": true, "detail": "rate_limit_events: 0" },
+    "C4": { "name": "message_pipeline", "pass": true, "detail": "slack connected (1 connect events), service running (pid: 615853)" },
+    "C5": { "name": "stable_runtime", "pass": true, "detail": "uptime: 468s, breaker_open: 0, restarts: 0" }
+  },
+  "verdict": "PASS",
+  "rollback_triggers": []
+}
+
+Exit code: 0 (all pass)
+Evidence file written: .sisyphus/evidence/r3-canary-20260224T062222Z.json
+
+--- Verification ---
+[x] Script created at scripts/canary-checkpoint.sh
+[x] Script is executable
+[x] Dry-run produces valid JSON with all C1-C5 fields
+[x] Live run calls Slack auth.test API (C1 real check)
+[x] Live run parses logs for C2/C3/C4/C5 metrics
+[x] Evidence JSON written to .sisyphus/evidence/r3-canary-{timestamp}.json
+[x] Exit code 0 when all pass
+[x] Script is idempotent (can run at any checkpoint interval)
+
+--- Script Design Notes ---
+- Uses pgrep -f 'dist/index.js' to discover PID dynamically
+- C1: curl to https://slack.com/api/auth.test with SLACK_BOT_TOKEN from .env
+- C2: pid_log_count for socket_stale/socket_reconnect/breaker_open; bc for reconnects/hour
+- C3: pid_log_count for rate_limited events
+- C4: pid_log_count for Slack connect events + kill -0 process liveness check
+- C5: systemctl NRestarts + process liveness + breaker_open count
+- pipefail-safe: all grep pipelines use (grep ... || true) subshell pattern
+- --dry-run flag skips auth.test API call, still exercises all log parsing

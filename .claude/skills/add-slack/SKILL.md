@@ -250,9 +250,11 @@ The TTL Map deduplicates on `channel:ts` key with a 5-minute window. If you're s
 ### Socket disconnects
 
  Search for `socket_stale` and `socket_reconnect` in logs.
- `socket_stale` means no event was received for 3+ minutes. This is normal during quiet periods but shouldn't happen continuously.
+ The watchdog uses a 12-minute stale threshold with exponential backoff (base 5s, factor 2, max 5 attempts) and a circuit breaker that calls `process.exit(1)` after max retries.
+ `socket_stale` means no socket event was received for 12+ minutes. A single stale event followed by a successful `socket_reconnect` is normal recovery.
  `socket_reconnect` with an error means the reconnect failed. Check that `SLACK_APP_TOKEN` is valid and has `connections:write` scope.
  If `reconnect_attempt` keeps climbing without a successful reconnect, the app token may be revoked. Rotate it in the Slack app settings and update `.env`.
+ If `breaker_open` appears in logs, the circuit breaker fired after 5 failed reconnect attempts. The process will exit and systemd/launchd will restart it.
 
 ### Bot only responds to @mentions
 
@@ -263,6 +265,27 @@ This is expected for non-main channels. For the main channel, set `requiresTrigg
  `SLACK_BOT_TOKEN` must start with `xoxb-`
  `SLACK_APP_TOKEN` must start with `xapp-`
  If tokens were rotated, update `.env` and sync to `data/env/env`
+
+## Monitoring Scripts
+
+This skill includes two operational scripts deployed to `scripts/slack/`:
+
+### Canary Checkpoint (`scripts/slack/canary-checkpoint.sh`)
+
+Runs a health check against 5 criteria (C1-C5): token validity, socket reconnect health, rate limit recovery, message pipeline, and stable runtime. Outputs structured JSON.
+
+```bash
+bash scripts/slack/canary-checkpoint.sh          # live check
+bash scripts/slack/canary-checkpoint.sh --dry-run # offline test
+```
+
+### Soak Monitor (`scripts/slack/soak-monitor.sh`)
+
+Runs periodic health checks over a time window. Useful for validating stability after deployments.
+
+```bash
+bash scripts/slack/soak-monitor.sh 15 120  # check every 15min for 120min
+```
 
 ## Reference
 

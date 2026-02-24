@@ -1,0 +1,34 @@
+=== Task 14: Canary T+1h Checkpoint Evidence ===
+Timestamp: 2026-02-24T02:16:21Z
+Service start: 2026-02-24T02:03:35Z (restart with Slack integration)
+Actual uptime at check: ~12 minutes (early checkpoint)
+
+C1 Token Validity:
+  Connections: 2 (initial + after restart) ✅
+  Auth failures: 0 ✅
+  Token revoked: 0 ✅
+
+C2 Socket Reconnect:
+  2 stale+reconnect cycles (natural, both recovered) ✅
+  Reconnect times: 4.5s and 2.2s
+
+C3 Rate Limit:
+  Rate limited events: 0 (in-app)
+  Send failures: 0 ✅
+  Note: Initial WSS rate limit in error.log recovered successfully
+
+C4 Message Count:
+  Messages sent: 2 (IPC test messages)
+  Target: ≥50 by T+24h
+
+C5 Process Stability:
+  Status: active (running) ✅
+  Error log: 4 lines (transient WSS/TLS errors, all recovered)
+
+Rollback triggers: NONE ✅
+
+=== VERDICT: HEALTHY — No rollback conditions ===
+
+NOTE: This is an early checkpoint (~T+12min). Full T+1h/4h/8h/24h
+observations require the service to continue running. The canary
+observation period starts now and runs for ≥24h.

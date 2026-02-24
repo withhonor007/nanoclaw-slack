@@ -1,0 +1,57 @@
+=== Task 18: Canary Exit Verdict ===
+Timestamp: 2026-02-24T03:24:06Z
+Service start: 2026-02-24T02:08:59Z
+Failure detected: 2026-02-24T03:08:28Z (~59 min uptime)
+
+============================================
+  CANARY EXIT CONDITIONS — ROUND 2
+============================================
+
+C1 Token Validity:     PASS ✅
+  - 2x 'Slack bot connected via Socket Mode'
+  - 0x auth.test failed
+  - 0x token_revoked / app_uninstalled
+
+C2 Socket Reconnect:   FAIL ❌
+  - 12 successful reconnects (02:06 → 03:04)
+  - Reconnect #21 at 03:08 FAILED
+  - Watchdog-induced death spiral: 21+ reconnects
+    exhausted Slack's apps.connections.open rate limit
+  - @slack/bolt created 57 WebSocket instances, all failed
+
+C3 Rate Limit Recovery: FAIL ❌
+  - Initial WSS rate limit recovered (startup)
+  - apps.connections.open rate limit NOT recovered
+  - TLS handshake failures cascaded after rate limit
+
+C4 Message Idempotency: INCONCLUSIVE ⚠️
+  - 2 messages sent before failure
+  - Target: ≥50 — unreachable (bot died at ~1h)
+
+C5 Stable Runtime:     FAIL ❌
+  - Required: ≥24h continuous operation
+  - Actual: ~59 minutes before death spiral
+  - Process alive but WebSocket dead from 03:08 onward
+
+============================================
+  VERDICT: ROLLBACK
+============================================
+
+Reason: C2 FAIL + C3 FAIL + C5 FAIL
+
+ROOT CAUSE: Watchdog death spiral in low-traffic environment
+  File: src/channels/slack.ts:165-206 (startWatchdog)
+  Bug 1: STALE_THRESHOLD=3min too aggressive for low-traffic
+         lastEventTs only updates on user events, not ping/pong
+         → socket always 'stale' after 3min with no messages
+  Bug 2: No exponential backoff or max-retry limit
+         → 21 reconnects in 1h exhausts Slack rate limit
+         → failed reconnect triggers Bolt internal retry storm
+         → 57 WebSocket instances, all failing
+
+RECOMMENDED FIX (before Round 3):
+  1. Increase STALE_THRESHOLD to 10-15 minutes
+  2. Add exponential backoff on failed reconnects
+  3. Cap max reconnect attempts (e.g., 5)
+  4. After max attempts, trigger full process restart
+  5. Consider using Slack ping/pong to update lastEventTs

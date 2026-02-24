@@ -1,0 +1,87 @@
+T1: BASELINE LOCK + GUARD VERIFICATION
+======================================
+Timestamp: 2026-02-24T04:53:20Z
+Task: Confirm undeployed mode, verify guards, create snapshot, record baseline test/build status
+
+STEP 1: DEPLOYMENT MODE CHECK
+------------------------------
+Command: ./feature_docs/clean.sh status
+Result: Mode = undeployed ✓
+Details:
+  - 状态: undeployed
+  - 模式锁: undeployed
+  - 快照数量: 6 existing snapshots
+
+STEP 2: GUARD VERIFICATION
+---------------------------
+Command: ./feature_docs/clean.sh guard-check
+Result: PASSED ✓
+Output: [OK] guard-check 通过：未发现核心 guard 暂存变更（mode=undeployed）
+Interpretation: No core guard staging changes detected in undeployed mode
+
+STEP 3: BASELINE SNAPSHOT CREATION
+-----------------------------------
+Command: ./feature_docs/clean.sh backup pre-r3-reliability
+Result: CREATED ✓
+Output: [OK] 快照已创建: pre-r3-reliability
+
+STEP 4: SNAPSHOT VERIFICATION
+------------------------------
+Command: ./feature_docs/clean.sh snapshots
+Result: Snapshot listed ✓
+Snapshots present:
+  - canary-deployed
+  - canary-deployed-r2
+  - deployed-w4-verified
+  - pre-canary
+  - pre-canary-r2
+  - predeploy-w4
+  - pre-r3-reliability (NEW)
+
+STEP 5: BASELINE TEST RUN
+-------------------------
+Command: npx vitest run
+Result: PARTIAL FAILURE
+Test Summary:
+  - Test Files: 1 failed | 28 passed (29 total)
+  - Tests: 337 passed
+  - Failed Suite: src/routing.test.ts
+  - Error: Cannot find module './index.js' imported from src/routing.test.ts:4
+
+Details:
+  - All other test suites passed
+  - 337 tests passed across 28 files
+  - Duration: 2.77s
+  - Failure is pre-existing (routing.test.ts import issue)
+
+STEP 6: BASELINE BUILD
+----------------------
+Command: npm run build
+Result: FAILED (Exit code 2)
+Errors:
+  - src/routing.test.ts(4,58): Cannot find module './index.js'
+  - src/routing.test.ts(37,24): Parameter 'g' implicitly has 'any' type
+  - src/routing.test.ts(38,24): Parameter 'g' implicitly has 'any' type
+  - src/routing.test.ts(39,24): Parameter 'g' implicitly has 'any' type
+  - src/routing.test.ts(65,30): Parameter 'g' implicitly has 'any' type
+  - src/routing.test.ts(66,32): Parameter 'g' implicitly has 'any' type
+
+BASELINE STATUS SUMMARY
+=======================
+✓ Deployment mode: undeployed (locked)
+✓ Guard checks: passed
+✓ Snapshot: pre-r3-reliability created and verified
+✓ Tests: 337 passing (1 suite failing due to pre-existing routing.test.ts issue)
+✗ Build: Failed (exit code 2) - pre-existing TypeScript errors in routing.test.ts
+
+INHERITED CONTEXT
+=================
+- System rolled back from Round 2 canary failure
+- src/channels/slack.ts absent (expected in undeployed mode)
+- src/index.ts was restored after accidental deletion in commit a970595
+- routing.test.ts import error is pre-existing baseline issue
+
+READY FOR T2
+============
+Baseline locked. Safe to proceed with Watchdog Remediation Implementation (T2).
+Rollback point: pre-r3-reliability snapshot

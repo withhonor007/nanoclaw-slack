@@ -1,0 +1,9 @@
+{
+  "active_plan": "/dev/disk/disk1/clawbot/nanoclaw/.sisyphus/plans/slack-w6-t12-dual-state-execution-plan.md",
+  "started_at": "2026-02-24T08:43:15.482Z",
+  "session_ids": [
+    "ses_3715023f3ffenwCwaJIgRhuV9q"
+  ],
+  "plan_name": "slack-w6-t12-dual-state-execution-plan",
+  "agent": "atlas"
+}

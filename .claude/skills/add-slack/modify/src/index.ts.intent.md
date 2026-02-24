@@ -37,6 +37,7 @@ Refactored from single WhatsApp channel to multi-channel architecture using the 
 - Added: conditional Slack creation (`if (SLACK_BOT_TOKEN && SLACK_APP_TOKEN)`) — both tokens required for Socket Mode
 - Changed: scheduler `sendMessage` uses `findChannel()` → `channel.sendMessage()`
 - Changed: IPC `sendMessage` uses `findChannel()` → `channel.sendMessage()`
+- Changed: IPC `syncGroupMetadata` calls both `whatsapp.syncGroupMetadata()` and `slackCh.syncChannelMetadata()` when Slack channel is active
 
 ### SLACK_ONLY fail-fast
 

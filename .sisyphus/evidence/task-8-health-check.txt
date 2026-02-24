@@ -1,0 +1,18 @@
+=== Task 8: Health Check Evidence ===
+Timestamp: 2026-02-24T02:04:57Z
+
+HC-1: Slack bot connected via Socket Mode ✅
+  Log: [02:03:41.188] Slack bot connected via Socket Mode
+
+HC-2: Error log — 2 lines (transient rate limit on initial WSS connection, retried successfully) ⚠️→✅
+  WARN: bolt-app http request failed (rate limit, retry-after: 10)
+  ERROR: socket-mode Failed to retrieve WSS URL (rate limit)
+  Resolution: Bot retried and connected successfully
+
+HC-3: Auth failures — 0 ✅
+
+Service: active (running) since 02:03:35 UTC
+Trigger: @Andy
+Groups loaded: 1
+
+=== VERDICT: PASS (with transient rate limit note) ===

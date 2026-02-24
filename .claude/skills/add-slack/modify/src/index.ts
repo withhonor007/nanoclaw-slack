@@ -104,7 +104,7 @@ export function getAvailableGroups(): import('./container-runner.js').AvailableG
   const registeredJids = new Set(Object.keys(registeredGroups));
 
   return chats
-    .filter((c) => c.jid !== '__group_sync__' && c.is_group)
+    .filter((c) => !c.jid.startsWith('__') && c.is_group)
     .map((c) => ({
       jid: c.jid,
       name: c.name,
@@ -484,7 +484,13 @@ async function main(): Promise<void> {
     },
     registeredGroups: () => registeredGroups,
     registerGroup,
-    syncGroupMetadata: (force) => whatsapp?.syncGroupMetadata(force) ?? Promise.resolve(),
+    syncGroupMetadata: async (force) => {
+      await (whatsapp?.syncGroupMetadata(force) ?? Promise.resolve());
+      const slackCh = channels.find((ch) => ch.name === 'slack') as
+        | SlackChannel
+        | undefined;
+      if (slackCh) await slackCh.syncChannelMetadata(force);
+    },
     getAvailableGroups,
     writeGroupsSnapshot: (gf, im, ag, rj) => writeGroupsSnapshot(gf, im, ag, rj),
   });

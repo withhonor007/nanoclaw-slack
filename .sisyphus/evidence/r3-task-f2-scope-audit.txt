@@ -1,0 +1,82 @@
+F2: Scope Fidelity Audit — Round 3 Slack Stability Plan
+Timestamp: Audit executed on 2026-02-24 (session-local time)
+Plan: .sisyphus/plans/slack-round3-stability-and-sync.md
+
+Must Have Validation (9 items)
+1) PASS — Stale-threshold reconnect storm remediation
+   - Evidence: `src/channels/slack.ts:36` sets `STALE_THRESHOLD = 12 * 60 * 1000` (>=10m)
+   - Evidence: `src/channels/slack.ts:193` uses threshold gate before reconnect
+   - Note: Implemented as named constant (code-level configurable), not env-exposed.
+
+2) PASS — Socket-level liveness beyond user message timestamps
+   - Evidence: `src/channels/slack.ts:88-94` registers `receiver.on('connected'/'disconnected')`
+   - Evidence: `src/channels/slack.ts:89` updates `lastEventTs` from socket event
+   - Evidence: `src/channels/slack.test.ts:663-683` heartbeat test prevents stale reconnect
+
+3) PASS — Reconnect in-flight reentrancy lock
+   - Evidence: `src/channels/slack.ts:34` `isReconnecting` lock
+   - Evidence: `src/channels/slack.ts:184-187,219,244` skip/lock/finally release
+   - Evidence: `src/channels/slack.test.ts:685-700` verifies overlap prevention
+
+4) PASS — Exponential backoff + jitter + max retry cap (<=5)
+   - Evidence: `src/channels/reconnect-policy.ts:8-13` base=5000, factor=2, jitter=0.2, maxAttempts=5
+   - Evidence: `src/channels/reconnect-policy.ts:55-57` cap enforcement (`should_retry=false` beyond max)
+   - Evidence: `src/channels/slack.ts:195` watchdog uses policy; `src/channels/slack.test.ts:701-727` verifies progression
+
+5) PASS — Post-max-retry terminal behavior (circuit breaker)
+   - Evidence: `src/channels/slack.ts:197-206` sets `breakerOpen`, logs `breaker_open`, calls `process.exit(1)`
+   - Evidence: `src/channels/slack.test.ts:729-743` verifies breaker + exit behavior
+
+6) PASS — Bolt SDK internal retry/reconnect aligned with watchdog policy
+   - Evidence: `src/channels/slack.ts:48-55` explicit `retryConfig` (`retries:1`, `factor:1`, `randomize:false`)
+   - Evidence: `src/channels/slack.test.ts:119-134` verifies retry config values
+
+7) PASS — Supervisor restart policy verified before breaker `process.exit(1)` use
+   - Evidence: `setup/service.ts:90-91` launchd `KeepAlive=true`
+   - Evidence: `setup/service.ts:223-224` systemd `Restart=always`, `RestartSec=5`
+   - Evidence: `.sisyphus/evidence/r3-task-7-e2e-smoke.txt:5-16` confirms running under systemd user unit
+
+8) PASS — `apps.connections.open` failure/recovery behavior validation under retry cap
+   - Evidence: `src/channels/slack.ts:97-104` rate-limit event listener captures URL-specific rate limits
+   - Evidence: `.sisyphus/evidence/r3-task-7-failure-injection.txt:11-39` validates retry cap/backoff/breaker behavior
+   - Evidence: `scripts/canary-checkpoint.sh:181-189` fails C3 on any rate-limit event during canary checks
+
+9) PASS — Quantified canary exit criteria with numeric thresholds
+   - Evidence: `.sisyphus/plans/slack-round3-stability-and-sync.md:141-147` C1-C5 thresholds table
+   - Evidence: `scripts/canary-checkpoint.sh:152-170,181-189,239-271` enforces threshold checks and rollback triggers
+
+Must NOT Have Guardrails (6 items)
+1) PASS — No unrelated feature expansion (slash commands, threads, interactivity, file uploads)
+   - Grep across changed Slack/runtime files found no `app.command`, `thread_ts`, `block_actions`, `view_submission`, `files.upload` handlers.
+
+2) PASS — No metadata-sync rollout in this reliability plan
+   - Grep found no Slack metadata-sync implementation in changed reliability files/scripts.
+
+3) PASS — No destructive cleanup commands (`clean.sh nuke` / data wipe)
+   - Grep across round-3 evidence/scripts found no `clean.sh nuke` or wipe usage.
+
+4) PASS — No skipping deployed validation before canary
+   - Evidence sequence present: `r3-task-6-deployed-gate.txt` -> `r3-task-7-*.txt` -> `r3-task-8-checkpoint-script.txt` -> `r3-task-9-canary-log.txt`.
+
+5) PASS — No promote decision without complete evidence files
+   - No promote artifact present; canary remains active (`r3-task-9-canary-log.txt`).
+
+6) PASS — No manual 24h agent session (checkpoint automation required)
+   - Evidence: `scripts/canary-checkpoint.sh` automation + scheduled checkpoint log in `r3-task-9-canary-log.txt`.
+
+In-Scope Reliability Objectives
+1) PASS — T2 Watchdog remediation implemented (`src/channels/slack.ts`, `src/channels/reconnect-policy.ts`)
+2) PASS — T3 Reliability test suite completed (`src/channels/slack.test.ts`, gate evidence)
+3) PASS — T4 Timestamp precision fix completed (`src/channels/slack.ts:354-357`, tests `src/channels/slack.test.ts:563-641`)
+4) PASS — T6-T7 Deployed validation completed (`r3-task-6-deployed-gate.txt`, `r3-task-7-e2e-smoke.txt`, `r3-task-7-failure-injection.txt`, `r3-task-7-soak.txt`)
+5) PASS — T8 Canary checkpoint automation completed (`scripts/canary-checkpoint.sh`, `r3-task-8-checkpoint-script.txt`)
+6) FAIL (in progress) — T9 Canary execution + final verdict not complete yet
+   - Evidence: `r3-task-9-canary-log.txt:1-5` shows scheduler started/waiting; no final T+24h verdict artifact yet.
+
+Out-of-Scope Scan Summary
+- Patterns scanned in changed reliability files: slash commands, threads, interactivity/modals/buttons, file uploads, metadata sync, destructive cleanup usage.
+- Result: 0 out-of-scope feature additions detected.
+- Dependency expansion check: no Round-3 evidence of new npm dependency work in audited reliability artifacts.
+
+Required Output
+Must Have [9/9] | Must NOT Have [6/6] | In-scope [5/6] | Out-of-scope violations [0] | VERDICT: FAIL (T9 final canary verdict incomplete)

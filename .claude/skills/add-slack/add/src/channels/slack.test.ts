@@ -14,6 +14,12 @@ vi.mock('../logger.js', () => ({
   },
 }));
 
+vi.mock('../db.js', () => ({
+  getLastGroupSync: vi.fn().mockReturnValue(null),
+  setLastGroupSync: vi.fn(),
+  updateChatName: vi.fn(),
+  updateRegisteredGroupName: vi.fn(),
+}));
 type Handler = (payload: { event: Record<string, unknown> }) => Promise<void>;
 
 const appRef = vi.hoisted(() => ({ current: null as any }));
@@ -32,7 +38,17 @@ vi.mock('@slack/bolt', () => ({
       chat: {
         postMessage: vi.fn().mockResolvedValue(undefined),
       },
+      conversations: {
+        list: vi.fn().mockResolvedValue({
+          channels: [
+            { id: 'C123', name: 'general' },
+            { id: 'C456', name: 'random' },
+          ],
+          response_metadata: { next_cursor: '' },
+        }),
+      },
     };
+    receiver: { on?: (event: string, fn: () => void) => void } = {};
 
     constructor(opts: Record<string, unknown>) {
       this.opts = opts;
@@ -46,8 +62,17 @@ vi.mock('@slack/bolt', () => ({
     }
   },
 }));
+vi.mock('@slack/web-api', () => ({
+  WebClientEvent: { RATE_LIMITED: 'rate_limited' },
+}));
 
 import { SlackChannel, SlackChannelOpts } from './slack.js';
+import {
+  getLastGroupSync,
+  setLastGroupSync,
+  updateChatName,
+  updateRegisteredGroupName,
+} from '../db.js';
 import { logger } from '../logger.js';
 
 function createOpts(overrides?: Partial<SlackChannelOpts>): SlackChannelOpts {
@@ -112,7 +137,7 @@ describe('SlackChannel', () => {
     expect(appRef.current.opts.signingSecret).toBeUndefined();
   });
 
-  it('configures retry policy with max 3 retries', async () => {
+  it('configures retry policy with minimal Bolt retries', async () => {
     const channel = new SlackChannel('xoxb-token', 'xapp-token', createOpts());
     await channel.connect();
 
@@ -123,9 +148,9 @@ describe('SlackChannel', () => {
       };
     };
 
-    expect(opts.clientOptions.retryConfig.retries).toBe(3);
-    expect(opts.clientOptions.retryConfig.factor).toBe(2);
-    expect(opts.clientOptions.retryConfig.randomize).toBe(true);
+    expect(opts.clientOptions.retryConfig.retries).toBe(1);
+    expect(opts.clientOptions.retryConfig.factor).toBe(1);
+    expect(opts.clientOptions.retryConfig.randomize).toBe(false);
     expect(opts.clientOptions.rejectRateLimitedCalls).toBe(false);
   });
 
@@ -216,7 +241,7 @@ describe('SlackChannel', () => {
 
     expect(opts.onChatMetadata).toHaveBeenCalledWith(
       'slack:C123',
-      '2024-01-01T00:00:00.000Z',
+      '2024-01-01T00:00:00.000Z|1704067200.000001',
       undefined,
       'slack',
       true,
@@ -499,7 +524,8 @@ describe('SlackChannel', () => {
         createOpts(),
       );
       await channel.connect();
-      await vi.advanceTimersByTimeAsync(4 * 60 * 1000);
+      await vi.advanceTimersByTimeAsync(13 * 60 * 1000);
+      await vi.advanceTimersByTimeAsync(10_000);
       expect(appRef.current.stop).toHaveBeenCalled();
       expect(appRef.current.start).toHaveBeenCalledTimes(2);
     });
@@ -521,7 +547,7 @@ describe('SlackChannel', () => {
         createOpts(),
       );
       await channel.connect();
-      await vi.advanceTimersByTimeAsync(4 * 60 * 1000);
+      await vi.advanceTimersByTimeAsync(13 * 60 * 1000);
       expect(logger.warn).toHaveBeenCalledWith(
         expect.objectContaining({ event: 'socket_stale' }),
         expect.any(String),
@@ -534,7 +560,8 @@ describe('SlackChannel', () => {
         createOpts(),
       );
       await channel.connect();
-      await vi.advanceTimersByTimeAsync(4 * 60 * 1000);
+      await vi.advanceTimersByTimeAsync(13 * 60 * 1000);
+      await vi.advanceTimersByTimeAsync(10_000);
       expect(logger.info).toHaveBeenCalledWith(
         expect.objectContaining({ event: 'socket_reconnect' }),
         expect.any(String),
@@ -553,5 +580,357 @@ describe('SlackChannel', () => {
       client_msg_id: 'ts-test',
     });
     expect(opts.onMessage).toHaveBeenCalled();
+  });
+  describe('timestamp precision', () => {
+    it('preserves full Slack ts precision in ISO timestamp', async () => {
+      const opts = createOpts();
+      const channel = new SlackChannel('xoxb-token', 'xapp-token', opts);
+      await channel.connect();
+
+      await emitEvent('message', {
+        channel: 'C123',
+        user: 'U123',
+        text: 'burst message 1',
+        ts: '1704067200.123456',
+        client_msg_id: 'burst1',
+      });
+
+      expect(opts.onChatMetadata).toHaveBeenCalledWith(
+        'slack:C123',
+        expect.stringContaining('|1704067200.123456'),
+        undefined,
+        'slack',
+        true,
+      );
+    });
+
+    it('allows same-millisecond messages with different microsecond precision', async () => {
+      const opts = createOpts();
+      const channel = new SlackChannel('xoxb-token', 'xapp-token', opts);
+      await channel.connect();
+
+      // Two messages in same millisecond but different microseconds
+      await emitEvent('message', {
+        channel: 'C123',
+        user: 'U123',
+        text: 'burst message 1',
+        ts: '1704067200.123456',
+        client_msg_id: 'burst1',
+      });
+
+      await emitEvent('message', {
+        channel: 'C123',
+        user: 'U123',
+        text: 'burst message 2',
+        ts: '1704067200.123789',
+        client_msg_id: 'burst2',
+      });
+
+      // Both should be processed (different ts = different dedup keys)
+      expect(opts.onMessage).toHaveBeenCalledTimes(2);
+      expect(opts.onMessage).toHaveBeenNthCalledWith(
+        1,
+        'slack:C123',
+        expect.objectContaining({ id: 'burst1' }),
+      );
+      expect(opts.onMessage).toHaveBeenNthCalledWith(
+        2,
+        'slack:C123',
+        expect.objectContaining({ id: 'burst2' }),
+      );
+    });
+
+    it('deduplicates identical ts values even with microsecond precision', async () => {
+      const opts = createOpts();
+      const channel = new SlackChannel('xoxb-token', 'xapp-token', opts);
+      await channel.connect();
+
+      const event = {
+        channel: 'C123',
+        user: 'U123',
+        text: 'duplicate burst',
+        ts: '1704067200.123456',
+        client_msg_id: 'dup-burst',
+      };
+
+      // Send same event twice
+      await emitEvent('message', event);
+      await emitEvent('message', event);
+
+      // Only first should be processed (dedup catches second)
+      expect(opts.onMessage).toHaveBeenCalledTimes(1);
+    });
+  });
+  describe('watchdog reliability', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+    it('does not reconnect before 12-minute stale threshold, reconnects after', async () => {
+      const channel = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOpts(),
+      );
+      await channel.connect();
+      const stopSpy = appRef.current.stop;
+      // Advance 11 minutes — below 12-minute threshold
+      await vi.advanceTimersByTimeAsync(11 * 60 * 1000);
+      expect(stopSpy).not.toHaveBeenCalled();
+      // Advance 2 more minutes — now 13 minutes total, above threshold
+      await vi.advanceTimersByTimeAsync(2 * 60 * 1000);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(stopSpy).toHaveBeenCalled();
+    });
+    it('socket heartbeat prevents stale detection', async () => {
+      const receiverHandlers: Record<string, (() => void)[]> = {};
+      const channel = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOpts(),
+      );
+      // connect() calls new App() synchronously (sets appRef.current), then awaits start()
+      // We start the connect promise, then install receiver.on before start() resolves
+      const connectPromise = channel.connect();
+      // appRef.current is set synchronously in MockApp constructor
+      appRef.current.receiver.on = (event: string, fn: () => void) => {
+        receiverHandlers[event] = receiverHandlers[event] || [];
+        receiverHandlers[event].push(fn);
+      };
+      await connectPromise;
+      const stopSpy = appRef.current.stop;
+      // Advance 11 minutes — below threshold
+      await vi.advanceTimersByTimeAsync(11 * 60 * 1000);
+      expect(stopSpy).not.toHaveBeenCalled();
+      // Fire the 'connected' socket heartbeat — resets lastEventTs
+      (receiverHandlers['connected'] || []).forEach((fn) => fn());
+      // Advance 11 more minutes from heartbeat — still under 12-minute threshold
+      await vi.advanceTimersByTimeAsync(11 * 60 * 1000);
+      expect(stopSpy).not.toHaveBeenCalled();
+    });
+    it('reentrancy guard prevents concurrent reconnects', async () => {
+      const channel = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOpts(),
+      );
+      await channel.connect();
+      // Make stop() never resolve — simulates a slow reconnect stuck in flight
+      appRef.current.stop.mockReturnValue(new Promise<void>(() => {}));
+      // Advance past stale threshold — triggers first reconnect (isReconnecting = true)
+      await vi.advanceTimersByTimeAsync(13 * 60 * 1000);
+      // Advance another watchdog tick — should be skipped due to reentrancy guard
+      await vi.advanceTimersByTimeAsync(60 * 1000);
+      expect(logger.debug).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'reconnect_skipped',
+          reason: 'in_flight',
+        }),
+        expect.any(String),
+      );
+      // stop() called only once — second tick was skipped
+      expect(appRef.current.stop).toHaveBeenCalledTimes(1);
+    });
+    it('exponential backoff delays increase between reconnect attempts', async () => {
+      const channel = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOpts(),
+      );
+      await channel.connect();
+      // Force start() to always reject so reconnects fail and attempt counter increments
+      appRef.current.start.mockRejectedValue(new Error('connect failed'));
+      // First attempt: advance past stale threshold
+      await vi.advanceTimersByTimeAsync(13 * 60 * 1000);
+      // attempt=1: baseDelay=5000 * 2^0 = 5000ms, jitter ±20% → [4000, 6000]
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'socket_stale',
+          reconnect_attempt: 1,
+          backoff_delay_ms: expect.toSatisfy(
+            (v: number) => v >= 4000 && v <= 6000,
+          ),
+        }),
+        expect.any(String),
+      );
+      // Second attempt: advance another full stale window
+      await vi.advanceTimersByTimeAsync(13 * 60 * 1000);
+      // attempt=2: baseDelay=5000 * 2^1 = 10000ms, jitter ±20% → [8000, 12000]
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'socket_stale',
+          reconnect_attempt: 2,
+          backoff_delay_ms: expect.toSatisfy(
+            (v: number) => v >= 8000 && v <= 12000,
+          ),
+        }),
+        expect.any(String),
+      );
+    });
+    it('circuit breaker opens after max retries and calls process.exit(1)', async () => {
+      const channel = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOpts(),
+      );
+      await channel.connect();
+      // Force start() to always reject
+      appRef.current.start.mockRejectedValue(new Error('connect failed'));
+      // Trigger 6 watchdog ticks — maxAttempts=5, so attempt 6 exceeds limit
+      for (let i = 0; i < 6; i++) {
+        await vi.advanceTimersByTimeAsync(13 * 60 * 1000);
+      }
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ event: 'breaker_open' }),
+        expect.any(String),
+      );
+      expect(process.exit).toHaveBeenCalledWith(1);
+    });
+    it('retry counter resets to 0 after successful reconnect', async () => {
+      const channel = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOpts(),
+      );
+      await channel.connect();
+      // Fail twice, then succeed on third attempt
+      appRef.current.start
+        .mockRejectedValueOnce(new Error('fail 1'))
+        .mockRejectedValueOnce(new Error('fail 2'))
+        .mockResolvedValue(undefined);
+      // Two failed attempts
+      await vi.advanceTimersByTimeAsync(13 * 60 * 1000);
+      await vi.advanceTimersByTimeAsync(13 * 60 * 1000);
+      // Successful reconnect — resets reconnectAttempt to 0
+      await vi.advanceTimersByTimeAsync(13 * 60 * 1000);
+      // Now force failures again — next attempt should start from 1, not 3
+      appRef.current.start.mockRejectedValue(new Error('fail again'));
+      vi.clearAllMocks();
+      await vi.advanceTimersByTimeAsync(13 * 60 * 1000);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'socket_stale',
+          reconnect_attempt: 1,
+        }),
+        expect.any(String),
+      );
+    });
+  });
+
+  describe('syncChannelMetadata', () => {
+    const createChannel = () =>
+      new SlackChannel('xoxb-token', 'xapp-token', createOpts());
+
+    const connectChannel = async () => {
+      const channel = createChannel();
+      await channel.connect();
+      return channel;
+    };
+
+    it('fetches channels and updates names', async () => {
+      const channel = await connectChannel();
+      await channel.syncChannelMetadata(true);
+
+      expect(appRef.current.client.conversations.list).toHaveBeenCalledWith(
+        expect.objectContaining({
+          types: 'public_channel,private_channel',
+          exclude_archived: true,
+        }),
+      );
+      expect(updateChatName).toHaveBeenCalledWith('slack:C123', 'general');
+      expect(updateChatName).toHaveBeenCalledWith('slack:C456', 'random');
+      expect(updateRegisteredGroupName).toHaveBeenCalledWith(
+        'slack:C123',
+        'general',
+      );
+      expect(updateRegisteredGroupName).not.toHaveBeenCalledWith(
+        'slack:C456',
+        expect.any(String),
+      );
+      expect(setLastGroupSync).toHaveBeenCalledWith('__slack_sync__');
+    });
+
+    it('skips when not connected', async () => {
+      const channel = createChannel();
+      await channel.syncChannelMetadata(true);
+      expect(
+        appRef.current?.client?.conversations?.list,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('handles API errors gracefully', async () => {
+      const channel = await connectChannel();
+      appRef.current.client.conversations.list.mockRejectedValueOnce(
+        new Error('rate limited'),
+      );
+      await expect(channel.syncChannelMetadata(true)).resolves.toBeUndefined();
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ err: expect.any(Error) }),
+        'Failed to sync Slack channel metadata',
+      );
+    });
+
+    it('respects 24h cache when force=false', async () => {
+      const channel = await connectChannel();
+      // Reset call count after connect()'s initial sync
+      vi.mocked(appRef.current.client.conversations.list).mockClear();
+      vi.mocked(getLastGroupSync).mockReturnValueOnce(new Date().toISOString());
+      await channel.syncChannelMetadata(false);
+      expect(appRef.current.client.conversations.list).not.toHaveBeenCalled();
+    });
+
+    it('bypasses cache when force=true', async () => {
+      const channel = await connectChannel();
+      vi.mocked(getLastGroupSync).mockReturnValueOnce(new Date().toISOString());
+      await channel.syncChannelMetadata(true);
+      expect(appRef.current.client.conversations.list).toHaveBeenCalled();
+    });
+
+    it('handles paginated conversations.list responses', async () => {
+      const channel = await connectChannel();
+      vi.mocked(appRef.current.client.conversations.list).mockClear();
+      vi.mocked(updateChatName).mockClear();
+      vi.mocked(updateRegisteredGroupName).mockClear();
+      vi.mocked(setLastGroupSync).mockClear();
+
+      vi.mocked(appRef.current.client.conversations.list)
+        .mockResolvedValueOnce({
+          channels: [{ id: 'C100', name: 'page1-chan' }],
+          response_metadata: { next_cursor: 'cursor_abc' },
+        })
+        .mockResolvedValueOnce({
+          channels: [{ id: 'C200', name: 'page2-chan' }],
+          response_metadata: { next_cursor: '' },
+        });
+
+      await channel.syncChannelMetadata(true);
+
+      expect(appRef.current.client.conversations.list).toHaveBeenCalledTimes(2);
+      expect(updateChatName).toHaveBeenCalledWith('slack:C100', 'page1-chan');
+      expect(updateChatName).toHaveBeenCalledWith('slack:C200', 'page2-chan');
+      expect(setLastGroupSync).toHaveBeenCalledWith('__slack_sync__');
+    });
+
+    it('triggers sync on connect', async () => {
+      const channel = createChannel();
+      await channel.connect();
+
+      expect(appRef.current.client.conversations.list).toHaveBeenCalled();
+    });
+
+    it('clears sync timer on disconnect', async () => {
+      const channel = await connectChannel();
+
+      expect((channel as any).syncTimerStarted).toBe(true);
+      expect((channel as any).syncTimer).not.toBeNull();
+
+      await channel.disconnect();
+
+      expect((channel as any).syncTimerStarted).toBe(false);
+      expect((channel as any).syncTimer).toBeNull();
+    });
   });
 });
