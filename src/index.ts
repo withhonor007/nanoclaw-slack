@@ -7,12 +7,8 @@ import {
   IDLE_TIMEOUT,
   MAIN_GROUP_FOLDER,
   POLL_INTERVAL,
-  SLACK_APP_TOKEN,
-  SLACK_BOT_TOKEN,
-  SLACK_ONLY,
   TRIGGER_PATTERN,
 } from './config.js';
-import { SlackChannel } from './channels/slack.js';
 import { WhatsAppChannel } from './channels/whatsapp.js';
 import {
   ContainerOutput,
@@ -104,7 +100,7 @@ export function getAvailableGroups(): import('./container-runner.js').AvailableG
   const registeredJids = new Set(Object.keys(registeredGroups));
 
   return chats
-    .filter((c) => !c.jid.startsWith('__') && c.is_group)
+    .filter((c) => c.jid !== '__group_sync__' && c.is_group)
     .map((c) => ({
       jid: c.jid,
       name: c.name,
@@ -438,27 +434,9 @@ async function main(): Promise<void> {
   };
 
   // Create and connect channels
-  if (!SLACK_ONLY) {
-    whatsapp = new WhatsAppChannel(channelOpts);
-    channels.push(whatsapp);
-    await whatsapp.connect();
-  }
-
-  if (SLACK_BOT_TOKEN) {
-    const slack = new SlackChannel(
-      SLACK_BOT_TOKEN,
-      SLACK_APP_TOKEN,
-      channelOpts,
-    );
-    channels.push(slack);
-    await slack.connect();
-  }
-
-  // Fail-fast: SLACK_ONLY with missing tokens means no channels at all
-  if (SLACK_ONLY && channels.length === 0) {
-    logger.fatal('SLACK_ONLY=true but SLACK_BOT_TOKEN or SLACK_APP_TOKEN is missing — no channels available');
-    process.exit(1);
-  }
+  whatsapp = new WhatsAppChannel(channelOpts);
+  channels.push(whatsapp);
+  await whatsapp.connect();
 
   // Start subsystems (independently of connection handler)
   startSchedulerLoop({
@@ -484,13 +462,7 @@ async function main(): Promise<void> {
     },
     registeredGroups: () => registeredGroups,
     registerGroup,
-    syncGroupMetadata: async (force) => {
-      await (whatsapp?.syncGroupMetadata(force) ?? Promise.resolve());
-      const slackCh = channels.find((ch) => ch.name === 'slack') as
-        | SlackChannel
-        | undefined;
-      if (slackCh) await slackCh.syncChannelMetadata(force);
-    },
+    syncGroupMetadata: (force) => whatsapp?.syncGroupMetadata(force) ?? Promise.resolve(),
     getAvailableGroups,
     writeGroupsSnapshot: (gf, im, ag, rj) => writeGroupsSnapshot(gf, im, ag, rj),
   });

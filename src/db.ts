@@ -214,41 +214,22 @@ export function getAllChats(): ChatInfo[] {
 /**
  * Get timestamp of last group metadata sync.
  */
-export function getLastGroupSync(sentinel = '__group_sync__'): string | null {
+export function getLastGroupSync(): string | null {
   // Store sync time in a special chat entry
   const row = db
-    .prepare(`SELECT last_message_time FROM chats WHERE jid = ?`)
-    .get(sentinel) as { last_message_time: string } | undefined;
+    .prepare(`SELECT last_message_time FROM chats WHERE jid = '__group_sync__'`)
+    .get() as { last_message_time: string } | undefined;
   return row?.last_message_time || null;
 }
 
 /**
  * Record that group metadata was synced.
  */
-export function setLastGroupSync(sentinel = '__group_sync__'): void {
+export function setLastGroupSync(): void {
   const now = new Date().toISOString();
   db.prepare(
-    `INSERT OR REPLACE INTO chats (jid, name, last_message_time) VALUES (?, ?, ?)`,
-  ).run(sentinel, sentinel, now);
-}
-
-/**
- * Update the display name of a registered group.
- * No-op if the JID is not registered.
- */
-export function updateRegisteredGroupName(jid: string, name: string): void {
-  db.prepare(`UPDATE registered_groups SET name = ? WHERE jid = ?`).run(name, jid);
-}
-
-/**
- * Look up a chat's display name from the chats table.
- * Returns null if the JID is not found or has no name.
- */
-export function getChatName(jid: string): string | null {
-  const row = db
-    .prepare('SELECT name FROM chats WHERE jid = ?')
-    .get(jid) as { name: string } | undefined;
-  return row?.name || null;
+    `INSERT OR REPLACE INTO chats (jid, name, last_message_time) VALUES ('__group_sync__', '__group_sync__', ?)`,
+  ).run(now);
 }
 
 /**
