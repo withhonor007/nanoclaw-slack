@@ -10,7 +10,7 @@ import {
   TIMEZONE,
 } from './config.js';
 import { AvailableGroup } from './container-runner.js';
-import { createTask, deleteTask, getTaskById, updateTask } from './db.js';
+import { createTask, deleteTask, getChatName, getTaskById, updateTask } from './db.js';
 import { logger } from './logger.js';
 import { RegisteredGroup } from './types.js';
 
@@ -356,9 +356,13 @@ export async function processTaskIpc(
         );
         break;
       }
-      if (data.jid && data.name && data.folder && data.trigger) {
+      if (data.jid && data.folder && data.trigger) {
+        // Auto-resolve name from chats table if not provided (Slack channels
+        // are synced on startup via conversations.list, so the name is usually
+        // already available). Falls back to the raw JID as a last resort.
+        const resolvedName = data.name || getChatName(data.jid) || data.jid;
         deps.registerGroup(data.jid, {
-          name: data.name,
+          name: resolvedName,
           folder: data.folder,
           trigger: data.trigger,
           added_at: new Date().toISOString(),
@@ -368,7 +372,7 @@ export async function processTaskIpc(
       } else {
         logger.warn(
           { data },
-          'Invalid register_group request - missing required fields',
+          'Invalid register_group request - missing required fields (jid, folder, trigger)',
         );
       }
       break;

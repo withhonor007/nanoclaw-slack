@@ -241,6 +241,17 @@ export function updateRegisteredGroupName(jid: string, name: string): void {
 }
 
 /**
+ * Look up a chat's display name from the chats table.
+ * Returns null if the JID is not found or has no name.
+ */
+export function getChatName(jid: string): string | null {
+  const row = db
+    .prepare('SELECT name FROM chats WHERE jid = ?')
+    .get(jid) as { name: string } | undefined;
+  return row?.name || null;
+}
+
+/**
  * Store a message with full content.
  * Only call this for registered groups where message history is needed.
  */
