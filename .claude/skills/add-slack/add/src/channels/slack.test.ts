@@ -46,6 +46,9 @@ vi.mock('@slack/bolt', () => ({
           ],
           response_metadata: { next_cursor: '' },
         }),
+        info: vi.fn().mockResolvedValue({
+          channel: { id: 'C123', name: 'general', is_im: false, is_mpim: false },
+        }),
       },
     };
     receiver: { on?: (event: string, fn: () => void) => void } = {};
@@ -436,7 +439,7 @@ describe('SlackChannel', () => {
     expect(opts.onMessage).toHaveBeenCalledTimes(2);
   });
 
-  it('responds to !chatid command', async () => {
+  it('responds to !chatid command with channel name', async () => {
     const opts = createOpts();
     const channel = new SlackChannel('xoxb-token', 'xapp-token', opts);
     await channel.connect();
@@ -448,9 +451,12 @@ describe('SlackChannel', () => {
       ts: '1704067200.000012',
     });
 
+    expect(appRef.current.client.conversations.info).toHaveBeenCalledWith({
+      channel: 'C123',
+    });
     expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith({
       channel: 'C123',
-      text: 'Chat ID: slack:C123',
+      text: 'Chat ID: slack:C123 (general)',
     });
     expect(opts.onMessage).not.toHaveBeenCalled();
   });
@@ -931,6 +937,51 @@ describe('SlackChannel', () => {
 
       expect((channel as any).syncTimerStarted).toBe(false);
       expect((channel as any).syncTimer).toBeNull();
+    });
+  });
+
+  describe('resolveChannelName', () => {
+    it('resolves public channel name', async () => {
+      const channel = new SlackChannel('xoxb-token', 'xapp-token', createOpts());
+      await channel.connect();
+
+      appRef.current.client.conversations.info.mockResolvedValueOnce({
+        channel: { id: 'C123', name: 'general', is_im: false, is_mpim: false },
+      });
+
+      const name = await channel.resolveChannelName('C123');
+      expect(name).toBe('general');
+    });
+
+    it('returns dm- prefix for DMs', async () => {
+      const channel = new SlackChannel('xoxb-token', 'xapp-token', createOpts());
+      await channel.connect();
+
+      appRef.current.client.conversations.info.mockResolvedValueOnce({
+        channel: { id: 'D123', is_im: true, user: 'U456' },
+      });
+
+      const name = await channel.resolveChannelName('D123');
+      expect(name).toBe('dm-U456');
+    });
+
+    it('falls back to channelId on error', async () => {
+      const channel = new SlackChannel('xoxb-token', 'xapp-token', createOpts());
+      await channel.connect();
+
+      appRef.current.client.conversations.info.mockRejectedValueOnce(
+        new Error('not_found'),
+      );
+
+      const name = await channel.resolveChannelName('C999');
+      expect(name).toBe('C999');
+    });
+
+    it('returns channelId when not connected', async () => {
+      const channel = new SlackChannel('xoxb-token', 'xapp-token', createOpts());
+      // Don't connect
+      const name = await channel.resolveChannelName('C123');
+      expect(name).toBe('C123');
     });
   });
 });
