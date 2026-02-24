@@ -30,6 +30,7 @@ NanoClaw 支持将 Slack 作为消息通道，与 WhatsApp 并行运行或完全
 - 每个频道拥有独立的文件系统和记忆（`CLAUDE.md`）
 - 消息超过 40,000 字符自动分片发送
 - 内置 Bot 自循环防护、事件去重、Socket 断线重连
+- 频道名称自动解析 — 注册时无需手动输入名称
 
 ---
 
@@ -81,11 +82,12 @@ npx tsx .claude/skills/add-slack/scripts/generate-manifest.ts "你的Bot名称"
 点击生成的链接，Slack 会自动配置所有必需的权限和事件订阅：
 
 - `app_mentions:read` — 接收 @提及
-- `channels:history` / `groups:history` / `im:history` — 读取消息
+- `channels:history` / `groups:history` / `im:history` / `mpim:history` — 读取消息
+- `channels:read` / `groups:read` — 解析频道名称和元数据
 - `chat:write` — 发送消息
 - `users:read` — 查询用户信息
 - Socket Mode 已启用
-- 事件订阅已配置（`app_mention`、`message.channels`、`message.im`）
+- 事件订阅已配置（`app_mention`、`message.channels`、`message.groups`、`message.im`、`message.mpim`）
 
 ### 步骤 3：获取 Token
 
@@ -134,9 +136,9 @@ Bot 启动后，需要注册频道才能响应消息。
 ### 获取频道 ID
 
 1. 在 Slack 中邀请 Bot 到频道：`/invite @你的Bot名称`
-2. 在频道中发送任意消息提及 Bot，或直接发送 `!chatid`
-3. Bot 会回复频道 ID，格式为 `slack:C0123456789`
-4. DM（私聊）：直接给 Bot 发消息，发送 `!chatid` 获取 ID
+2. 在频道中提及 Bot，或直接发送 `!chatid`
+3. Bot 会回复频道 ID 和名称，格式为 `Chat ID: slack:C0123456789 (general)`
+4. DM（私聊）：直接给 Bot 发消息，发送 `!chatid` 获取 ID（显示 `dm-{user_id}`）
 
 频道 ID 前缀含义：
 
@@ -152,8 +154,10 @@ Main Channel 是你的私人管理频道，拥有最高权限。建议使用 DM 
 
 在 Claude Code 中告诉 Agent：
 ```
-注册 slack:D0123456789 为 main channel，名称为 "My Admin"
+Register slack:D0123456789 as main channel
 ```
+
+频道名称会从 Slack API 自动解析 — 你无需手动提供。如果名称无法解析（例如 Bot 刚加入且元数据尚未同步），则使用原始 JID 作为备选。
 
 Main Channel 特权：
 - 无需触发词，所有消息直接路由到 Agent
@@ -165,7 +169,12 @@ Main Channel 特权：
 ### 注册普通频道
 
 ```
-注册 slack:C0123456789 为普通频道，名称为 "Team Chat"
+Register slack:C0123456789 as regular channel
+```
+
+你可以选择提供名称来覆盖自动解析的名称：
+```
+Register slack:C0123456789 as regular channel, name "Custom Name"
 ```
 
 普通频道特性：
@@ -204,7 +213,7 @@ Main Channel 特权：
 
 | 命令 | 功能 | 适用范围 |
 |------|------|----------|
-| `!chatid` | 返回当前频道的注册 ID | 所有频道（含未注册） |
+| `!chatid` | 返回当前频道的 JID 和解析后的名称（例如 `Chat ID: slack:C123 (general)`） | 所有频道（含未注册） |
 
 ### 文件附件
 
@@ -268,7 +277,7 @@ tail -f logs/nanoclaw.log
 | `Slack bot connected via Socket Mode` | 连接成功 |
 | `slack_rate_limited` | 触发 Slack API 速率限制，自动等待重试 |
 | `slack_send_failed` | 消息发送失败（重试耗尽） |
-| `socket_stale` | 3 分钟无事件，触发重连 |
+| `socket_stale` | 12 分钟无事件，触发重连 |
 | `socket_reconnect` | 重连结果（成功/失败） |
 | `token_revoked` | Token 被撤销，Bot 断开连接 |
 | `app_uninstalled` | App 被卸载，Bot 断开连接 |
@@ -291,8 +300,10 @@ Slack 集成包含以下自动防护：
 |------|------|
 | Bot 自循环防护 | 三层过滤：subtype 过滤 + botUserId 对比 + bot_id 过滤 |
 | 事件去重 | `channel:ts` 键 + 5 分钟 TTL 内存 Map |
-| 速率限制 | Bolt 自动处理 429 Retry-After，3 次指数退避重试 |
-| Socket 看门狗 | 每 60 秒检查，3 分钟无事件自动重连 |
+| 速率限制 | Bolt 处理 429 Retry-After，1 次重试；看门狗管理重连 |
+| Socket 看门狗 | 每 60 秒检查一次，12 分钟无事件自动重连 |
+| 重连策略 | 指数退避（5 秒基数，2 倍因子，±20% 抖动），5 次失败后断路器退出 |
+| 频道元数据同步 | 每 30 分钟从 Slack API 自动同步频道名称 |
 | Token 生命周期 | 监听 `tokens_revoked` 和 `app_uninstalled` 事件 |
 | Safe Mode | `auth.test()` 失败时进入安全模式，强制过滤所有 Bot 消息 |
 
@@ -330,16 +341,16 @@ Slack 集成包含以下自动防护：
 ### Socket 断线
 
 - 搜索日志：`grep -E 'socket_stale|socket_reconnect' logs/nanoclaw.log`
-- `socket_stale` 表示 3 分钟无事件，安静时段属正常
+- `socket_stale` 表示 12+ 分钟无事件，安静时段属正常
 - `socket_reconnect` 带错误表示重连失败，检查 `SLACK_APP_TOKEN` 是否有效
-- 如果 `reconnect_attempt` 持续增长，App Token 可能已撤销，需在 Slack 设置中重新生成
+- 如果 `reconnect_attempt` 达到 5 次，断路器触发 `process.exit(1)` — systemd/launchd 会重启服务
 
 ### 速率限制
 
 - 搜索日志：`grep slack_rate_limited logs/nanoclaw.log`
 - `retry_after_s` 字段显示等待时间
 - 如果频繁触发，减少消息发送频率
-- 连续 3 次最终失败会记录 `slack_send_failed`
+- Bolt 内置重试耗尽后会记录 `slack_send_failed`
 
 ---
 

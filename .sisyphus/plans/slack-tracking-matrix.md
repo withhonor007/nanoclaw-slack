@@ -1,6 +1,6 @@
 # Slack 集成功能实现跟踪矩阵
 
-> 生成日期：2026-02-23 | 审计修正：2026-02-23（基于提交 `9f54644`）| W4 更新：2026-02-23 | W5 更新：2026-02-24
+> 生成日期：2026-02-23 | 审计修正：2026-02-23（基于提交 `9f54644`）| W4 更新：2026-02-23 | W5 更新：2026-02-24 | W6 更新：2026-02-24
 > 关联路线图：`.sisyphus/plans/slack-roadmap-next-phase.md`
 > 关联需求：`feature_docs/slack-map.md`（R1-R15）
 > 关联边界情况：`feature_docs/slack-edge-cases.md`（§1-§10）
@@ -25,10 +25,10 @@
 | W3   | T11  | 延后积压清单 + 最终合规审计       | writing          | ✅ 完成 | `docs/slack/T11-deferred-backlog-compliance.md` |
 | W4   | T5a  | 最小内核接线（审查新增）          | quick            | ✅ 完成 | W4 Step 4 经 apply-skill 验证                   |
 | —    | T5b  | 高级重构（\*\_ONLY 统一语义）     | —                | ➖ 延后 | —                                               |
-| W5   | T12  | Slack 频道名称自动同步            | deep             | ⏳ 未开始 | `.sisyphus/plans/curious-soaring-petal.md`      |
+| W5   | T12  | Slack 频道名称自动同步            | deep             | ✅ 完成 | skill-first 实现（getChatName + IPC auto-resolve + resolveChannelName） |
 | W5-R3| —   | 看门狗稳定性修复（9 项）+ 金丝雀  | deep             | ✅ PROMOTE | `slack-round3-completion-report.md`             |
 
-**统计**：12/13 执行任务完成（含 W5-R3 看门狗修复），1 个高级重构延后（T5b），1 个频道同步待实现（T12）。
+**统计**：13/13 执行任务完成（含 W5-R3 看门狗修复 + W6 T12 频道同步），1 个高级重构延后（T5b）。
 
 ---
 
@@ -49,7 +49,7 @@
 | R11  | 技能包结构            |  ●  |  ◎  |     |  ●  |     |     |     |     |     |     |  ◎  | ✅ T1+T4                                                                   |
 | R12  | modify/ 合并目标      |     |  ●  |     |     |  ●  |  ●  |     |     |     |     |  ◎  | ✅ T5a+T6 已合并                                                           |
 | R13  | 秘钥隔离              |     |     |     |  ●  |  ●  |     |     |     |     |     |  ◎  | ✅ T4，T5a 验证                                                            |
-| R14  | 测试规范              |     |     |     |  ●  |     |  ●  |  ●  |  ●  |  ●  |     |  ◎  | ✅ deployed 388 测试通过 + 1 todo（含 43 Slack 测试），undeployed 345 通过 |
+| R14  | 测试规范              |     |     |     |  ●  |     |  ●  |  ●  |  ●  |  ●  |     |  ◎  | ✅ deployed 406 测试通过 + 1 todo（含 55 Slack 测试），undeployed 345 通过 |
 | R15  | @提及翻译             |     |     |  ◎  |  ●  |     |     |     |     |     |     |  ◎  | ✅ T4                                                                      |
 
 **图例**：● = 主要实现任务 | ◎ = 审计/验证任务 | 空 = 不涉及
@@ -170,21 +170,21 @@
 | ~~🔴 P0~~ | ~~执行 T5a（最小内核接线）~~    | ✅ 已完成   |
 | ~~🟡 P1~~ | ~~修复 TD-2（看门狗状态）~~     | ✅ 已完成   |
 | ~~🟡 P1~~ | ~~修复 TD-5（端到端冒烟测试）~~ | ✅ 已验证   |
-| 🟡 P1     | T12 Slack 频道名称自动同步（5 步） | ⏳ 未开始 |
+| ~~🟡 P1~~ | ~~T12 Slack 频道名称自动同步（5 步）~~ | ✅ 完成（skill-first 实现，偏离原计划采用 Path C） |
 | 🟢 P2     | 简化 TD-4（clean.sh）           | ➖ 金丝雀后 |
 | ~~🟢 P2~~ | ~~条件金丝雀发布~~                  | ✅ PROMOTE（R3 C1-C5 全通过） |
 
-**T12 进度明细**（详见 `.sisyphus/plans/curious-soaring-petal.md`）：
+**T12 进度明细**（实际执行偏离原计划，采用 Path C: getChatName + IPC auto-resolve）：
 
 | 步骤 | 描述 | 涉及文件 | 状态 |
 | ---- | ---- | -------- | ---- |
-| Step 1 | `db.ts` 参数化 sentinel + 新增 `updateRegisteredGroupName` | `src/db.ts` | ⏳ 未开始 |
-| Step 2 | `index.ts` sentinel 过滤泛化 + IPC 接线扩展 | `src/index.ts` | ⏳ 未开始 |
-| Step 3 | `slack.ts` 核心 `syncChannelMetadata` 实现 | `src/channels/slack.ts` | ⏳ 未开始 |
-| Step 4 | `slack.test.ts` 新增 sync 测试（5 个用例） | `src/channels/slack.test.ts` | ⏳ 未开始 |
-| Step 5 | `routing.test.ts` sentinel 排除测试 | `src/routing.test.ts` | ⏳ 未开始 |
+| Step 1 | `db.ts` 新增 `getChatName(jid)` 函数 | `modify/src/db.ts` | ✅ 完成 |
+| Step 2 | `ipc.ts` register_group `name` 可选，自动通过 getChatName 解析 | `modify/src/ipc.ts`（新建） | ✅ 完成 |
+| Step 3 | `slack.ts` 新增 `resolveChannelName()` + `!chatid` 显示名称 + 30min 同步 | `add/src/channels/slack.ts` | ✅ 完成 |
+| Step 4 | `slack.test.ts` 新增 4 个测试（resolveChannelName describe + chatid） | `add/src/channels/slack.test.ts` | ✅ 完成 |
+| Step 5 | `groups/main/CLAUDE.md` 更新注册指令，name 标记为可选 | `groups/main/CLAUDE.md` | ✅ 完成 |
 
-**关键路径**：T12 不阻塞金丝雀发布，但建议在金丝雀后尽快实现以修复频道名称显示不一致问题。
+**额外收益**：`!chatid` 现在返回频道名称（如 `Chat ID: slack:C123 (general)`），方便用户确认频道。
 
 ---
 
@@ -278,29 +278,29 @@ Step 5: 收口（deployed 态 → undeployed 态）                     ✅ 已�
 
 ---
 
-## 9. 审计记录（2026-02-24）
+## 9. 审计记录（2026-02-24，初始审计）
 
-基于 `deep-test-r2` 分支代码审计，对照 `.sisyphus/plans/curious-soaring-petal.md` 开发计划（T12 Slack 频道名称自动同步），逐项验证实现状态：
+基于 `deep-test-r2` 分支代码审计，对照 `.sisyphus/plans/curious-soaring-petal.md` 原始计划（T12 Slack 频道名称自动同步）。实际执行采用 Path C 方案，偏离原计划，以下为原始审计快照（审计时尚未实现）：
 
-| 步骤 | 计划变更 | 代码实际状态 | 结论 |
+| 步骤 | 计划变更 | 审计时状态 | W6 最终状态 |
 | ---- | -------- | ------------ | ---- |
-| 1a | `getLastGroupSync` 加 `sentinel` 默认参数 | `db.ts:217-223` 硬编码 `'__group_sync__'`，无参数 | ⏳ 未实现 |
-| 1b | `setLastGroupSync` 加 `sentinel` 默认参数 | `db.ts:228-233` 硬编码 `'__group_sync__'`，无参数 | ⏳ 未实现 |
-| 1c | 新增 `updateRegisteredGroupName` 函数 | `db.ts` 中不存在该函数 | ⏳ 未实现 |
-| 2a | sentinel 过滤改为 `!c.jid.startsWith('__')` | `index.ts:107` 仍为 `c.jid !== '__group_sync__'` | ⏳ 未实现 |
-| 2b | IPC `syncGroupMetadata` 扩展调用 Slack sync | `index.ts:487` 仅调用 WhatsApp sync | ⏳ 未实现 |
-| 3a | `slack.ts` 导入 db 同步函数 | 无 `getLastGroupSync` 等导入 | ⏳ 未实现 |
-| 3b | 新增 `SLACK_SYNC_SENTINEL` / `SLACK_SYNC_INTERVAL_MS` 常量 | 不存在 | ⏳ 未实现 |
-| 3c | 新增 `syncTimerStarted` / `syncTimer` 类字段 | 不存在 | ⏳ 未实现 |
-| 3d | 新增 `syncChannelMetadata()` 方法 | 不存在 | ⏳ 未实现 |
-| 3e | `connect()` 末尾触发同步 + 定时器 | `slack.ts:115-117` 仅 `startWatchdog()`，无 sync | ⏳ 未实现 |
-| 3f | `disconnect()` 清理 sync 定时器 | `slack.ts:164-174` 仅清理 watchdog | ⏳ 未实现 |
-| 4a | MockApp.client 添加 `conversations` mock | `slack.test.ts:27-35` 无 `conversations` | ⏳ 未实现 |
-| 4b | 新增 `vi.mock('../db.js')` | 不存在 | ⏳ 未实现 |
-| 4c | 新增 `syncChannelMetadata` 测试 describe（5 用例） | 不存在 | ⏳ 未实现 |
-| 5 | `routing.test.ts` 新增 `__slack_sync__` 排除测试 | 仅有 `__group_sync__` 测试（第 42-49 行） | ⏳ 未实现 |
+| 1a | `getLastGroupSync` 加 `sentinel` 默认参数 | ✘ 未实现 | ➖ 不适用（Path C 不需要） |
+| 1b | `setLastGroupSync` 加 `sentinel` 默认参数 | ✘ 未实现 | ➖ 不适用（Path C 不需要） |
+| 1c | 新增 `updateRegisteredGroupName` 函数 | ✘ 未实现 | ✅ 替代实现：`getChatName(jid)` in db.ts |
+| 2a | sentinel 过滤改为 `!c.jid.startsWith('__')` | ✘ 未实现 | ➖ 不适用（Path C 不修改 sentinel） |
+| 2b | IPC `syncGroupMetadata` 扩展调用 Slack sync | ✘ 未实现 | ✅ 替代实现：IPC register_group name 可选 + auto-resolve |
+| 3a | `slack.ts` 导入 db 同步函数 | ✘ 未实现 | ➖ 不适用（同步逻辑已存在于 syncChannelMetadata） |
+| 3b | 新增 `SLACK_SYNC_SENTINEL` / `SLACK_SYNC_INTERVAL_MS` 常量 | ✘ 未实现 | ✅ `SLACK_SYNC_INTERVAL_MS` 已从 24h 改为 30min |
+| 3c | 新增 `syncTimerStarted` / `syncTimer` 类字段 | ✘ 未实现 | ➖ 已存在于现有 syncChannelMetadata 实现 |
+| 3d | 新增 `syncChannelMetadata()` 方法 | ✘ 未实现 | ➖ 已存在（仅调整同步间隔） |
+| 3e | `connect()` 末尾触发同步 + 定时器 | ✘ 未实现 | ➖ 已存在于现有实现 |
+| 3f | `disconnect()` 清理 sync 定时器 | ✘ 未实现 | ➖ 已存在于现有实现 |
+| 4a | MockApp.client 添加 `conversations` mock | ✘ 未实现 | ✅ 已添加（resolveChannelName 测试） |
+| 4b | 新增 `vi.mock('../db.js')` | ✘ 未实现 | ➖ 不需要（Path C 不在 slack.ts 中调用 db） |
+| 4c | 新增 `syncChannelMetadata` 测试 describe（5 用例） | ✘ 未实现 | ✅ 替代实现：resolveChannelName describe（4 测试） |
+| 5 | `routing.test.ts` 新增 `__slack_sync__` 排除测试 | ✘ 未实现 | ➖ 不适用（Path C 不引入新 sentinel） |
 
-**结论**：T12 计划 5 步 16 子项，0/16 已实现。全部待开发。
+**结论**：原计划 16 子项中，5 项通过替代方案实现（✅），11 项因 Path C 方案不适用或已存在（➖）。T12 功能目标完全达成。
 
 
 ---
@@ -321,7 +321,7 @@ Step 5: 收口（deployed 态 → undeployed 态）                     ✅ 已�
 
 ---
 
-## 11. W6 开发计划：T12 频道名称自动同步（双态流程）
+## 11. W6 开发计划：T12 频道名称自动同步 — ✅ 已完成
 
 ### 前置状态
 
@@ -401,3 +401,34 @@ T12 使用 `conversations.list` API，需确认 Bot Token Scopes 包含：
 - 代码量：~80 行新增（db 15 + index 8 + slack 50 + tests 60 + routing 8 ≈ 141 行，含测试）
 - 风险：低（所有代码已在 curious-soaring-petal.md 中精确设计，无架构变更）
 - 依赖：无外部依赖新增（`conversations.list` 已在 `@slack/bolt` 内置）
+
+---
+
+## 12. W6 实际执行审计（2026-02-24）
+
+### 执行偏离记录
+
+W6 实际执行显著偏离 §11 原始计划。原计划基于 `curious-soaring-petal.md` 的 16 子项逐步修改 `src/` 文件，实际采用 **skill-first + Path C** 方案：
+
+| 维度 | 原计划 | 实际执行 |
+| --- | --- | --- |
+| 工作流 | deployed 态直接修改 `src/` → 回写技能包 | 修改技能包 → reset 到 `022460` → `apply-skill` 重新部署 |
+| 名称解析策略 | `conversations.info` API 实时查询 + sentinel 参数化 | `getChatName()` 从 chats 表查询（零 API 调用） |
+| 修改范围 | 5 个 `src/` 文件（db, index, slack, slack.test, routing.test） | 4 个技能包文件（slack.ts, slack.test.ts, db.ts modify, ipc.ts modify）+ CLAUDE.md |
+| IPC 变更 | 无（通过 syncGroupMetadata 扩展） | `register_group` handler `name` 改为可选，自动 fallback |
+| 测试数 | 预期 +6（5 sync + 1 sentinel） | 实际 +18（406 总 vs 388 基线，含 55 Slack 测试） |
+
+### 偏离原因
+
+1. **Skill-first 原则**：用户明确要求所有改动先在技能包中完成，不直接修改 `src/`
+2. **Path C 更优**：从 chats 表查询名称避免了额外 API 调用，且 `syncChannelMetadata` 已存在并定期更新 chats 表
+3. **IPC 层更合适**：名称解析放在 IPC `register_group` handler 比放在 agent 指令中更可靠
+
+### 最终验证
+
+| 门控 | 结果 |
+| --- | --- |
+| `npm test` | 406 passed, 1 todo, 30 files |
+| `npm run build` | 0 errors |
+| `systemctl --user restart nanoclaw` | Slack Socket Mode connected |
+| Skill apply 幂等性 | reset + apply 产出与手动修改一致 |
