@@ -454,6 +454,12 @@ async function main(): Promise<void> {
     await slack.connect();
   }
 
+  // Fail-fast: SLACK_ONLY with missing tokens means no channels at all
+  if (SLACK_ONLY && channels.length === 0) {
+    logger.fatal('SLACK_ONLY=true but SLACK_BOT_TOKEN or SLACK_APP_TOKEN is missing — no channels available');
+    process.exit(1);
+  }
+
   // Start subsystems (independently of connection handler)
   startSchedulerLoop({
     registeredGroups: () => registeredGroups,

@@ -45,10 +45,10 @@ This deterministically:
 - Adds `src/channels/slack.ts` (SlackChannel class implementing Channel interface)
 - Adds `src/channels/slack.test.ts` (unit tests)
 - Three-way merges Slack support into `src/index.ts` (multi-channel support, findChannel routing)
- Three-way merges Slack config into `src/config.ts` (SLACK_BOT_TOKEN, SLACK_APP_TOKEN, SLACK_ONLY, SLACK_FILTER_BOT_MESSAGES exports)
+- Three-way merges Slack config into `src/config.ts` (SLACK_BOT_TOKEN, SLACK_APP_TOKEN, SLACK_ONLY, SLACK_FILTER_BOT_MESSAGES exports)
 - Three-way merges updated routing tests into `src/routing.test.ts`
 - Installs the `@slack/bolt` npm dependency
-- Updates `.env.example` with Slack env vars
+- Updates `.env.example` with Slack env vars (creates it if it doesn't exist)
 - Records the application in `.nanoclaw/state.yaml`
 
 If the apply reports merge conflicts, read the intent files:
@@ -68,30 +68,21 @@ All tests must pass (including the new slack tests) and build must be clean befo
 
 ### Create Slack App (if needed)
 
-If the user doesn't have a Slack app, tell them:
+If the user doesn't have a Slack app:
 
-> I need you to create a Slack app:
->
-> 1. Go to https://api.slack.com/apps and click **Create New App**
-> 2. Choose **From scratch**, give it a name (e.g., "Andy Assistant"), select your workspace
-> 3. Under **Socket Mode**, enable it and create an app-level token with `connections:write` scope — save this as `SLACK_APP_TOKEN` (starts with `xapp-`)
-> 4. Under **OAuth & Permissions**, add these Bot Token Scopes:
->    - `app_mentions:read`
->    - `channels:history`
->    - `channels:read`
->    - `chat:write`
->    - `groups:history`
->    - `groups:read`
->    - `im:history`
->    - `im:read`
->    - `im:write`
->    - `users:read`
-> 5. Install the app to your workspace — save the **Bot User OAuth Token** as `SLACK_BOT_TOKEN` (starts with `xoxb-`)
-> 6. Under **Event Subscriptions**, enable events and subscribe to:
->    - `app_mention`
->    - `message.channels`
->    - `message.groups`
->    - `message.im`
+1. Ask the user for their desired app display name (e.g., "Andy Assistant").
+2. Generate the App Manifest and one-click creation URL:
+
+```bash
+npx tsx .claude/skills/add-slack/scripts/generate-manifest.ts "<app-name>"
+```
+
+3. Give the user the one-click creation URL from the output. Tell them:
+
+> 1. Click this link to create your Slack App (all scopes, event subscriptions, and Socket Mode are pre-configured):
+>    `<paste the one-click URL>`
+> 2. After the app is created, go to **Socket Mode** → create an App-Level Token with `connections:write` scope → save as `SLACK_APP_TOKEN` (starts with `xapp-`)
+> 3. Go to **Install App** → Install to Workspace → copy **Bot User OAuth Token** → save as `SLACK_BOT_TOKEN` (starts with `xoxb-`)
 
 Wait for the user to provide the tokens.
 
@@ -105,10 +96,11 @@ SLACK_APP_TOKEN=xapp-...
 ```
 
 If they chose to replace WhatsApp:
-
 ```bash
 SLACK_ONLY=true
 ```
+
+**Important**: When `SLACK_ONLY=true`, both `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` must be set. If either is missing, no channels will start and the bot will be unresponsive.
 
 Sync to container environment:
 
@@ -131,16 +123,14 @@ launchctl kickstart -k gui/$(id -u)/com.nanoclaw  # macOS
 ### Get Channel/DM ID
 
 Tell the user:
-
 > 1. Invite the bot to a Slack channel: `/invite @YourBotName`
-> 2. Send a message mentioning the bot — it will reply with the channel ID
-> 3. For DMs: just message the bot directly
+> 2. Send `!chatid` in the channel — the bot will reply with the channel ID (this works even before the channel is registered)
+> 3. For DMs: message the bot directly and send `!chatid`
 >
 > Channel IDs look like `slack:C0123456789` (channels) or `slack:D0123456789` (DMs).
 
 Wait for the user to provide the channel ID.
-
-### Register the channel
+Use the IPC register flow or register directly.
 
 For a main channel (responds to all messages, uses the `main` folder):
 
@@ -182,6 +172,21 @@ Tell the user:
 
 ```bash
 tail -f logs/nanoclaw.log
+```
+
+## After Setup
+
+If running `npm run dev` while the service is active:
+```bash
+# macOS:
+launchctl unload ~/Library/LaunchAgents/com.nanoclaw.plist
+npm run dev
+# When done testing:
+launchctl load ~/Library/LaunchAgents/com.nanoclaw.plist
+# Linux:
+# systemctl --user stop nanoclaw
+# npm run dev
+# systemctl --user start nanoclaw
 ```
 
 ## Post-Hardening
@@ -259,25 +264,22 @@ This is expected for non-main channels. For the main channel, set `requiresTrigg
  `SLACK_APP_TOKEN` must start with `xapp-`
  If tokens were rotated, update `.env` and sync to `data/env/env`
 
-## Reference Implementation
+## Reference
 
-The `claudecode-slackbot/` directory in this repo contains a full standalone Slack bot implementation. Key files to reference when filling in the channel implementation:
-
-- `claudecode-slackbot/src/slack-handler.ts` — Slack event handling, command routing
-- `claudecode-slackbot/src/claude-handler.ts` — Claude SDK session management
-- `claudecode-slackbot/src/config.ts` — Environment variable patterns
-- `claudecode-slackbot/src/session-queue.ts` — Concurrency control
-
-The NanoClaw skill should be much simpler: just a `SlackChannel` class that implements the `Channel` interface (connect, sendMessage, ownsJid, disconnect, setTyping).
+The `claudecode-slackbot/` directory contains a standalone Slack bot reference implementation. Useful for debugging or understanding the underlying Bolt patterns, but not required for normal operation.
 
 ## Removal
+Automated:
 
-To remove Slack integration:
+```bash
+npx tsx scripts/uninstall-skill.ts slack
+```
 
+Or manually:
 1. Delete `src/channels/slack.ts` and `src/channels/slack.test.ts`
 2. Remove `SlackChannel` import and creation from `src/index.ts`
 3. Remove `channels` array and revert to using `whatsapp` directly (if no other channels)
-4. Revert `getAvailableGroups()` filter if modified
+4. Remove Slack-specific test cases from `src/routing.test.ts`
 5. Remove Slack config (`SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SLACK_ONLY`, `SLACK_FILTER_BOT_MESSAGES`) from `src/config.ts`
 6. Remove Slack registrations from SQLite: `sqlite3 store/messages.db "DELETE FROM registered_groups WHERE jid LIKE 'slack:%'"`
 7. Uninstall: `npm uninstall @slack/bolt`
