@@ -13,6 +13,7 @@ modifies:
   - src/config.ts
   - src/routing.test.ts
   - src/db.ts
+  - src/ipc.ts
 structured:
   npm_dependencies:
     "@slack/bolt": "^4.6.0"
