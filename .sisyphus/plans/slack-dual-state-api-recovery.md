@@ -117,7 +117,7 @@ Wave 2 (Validation + rollout readiness):
 
 ## TODOs
 
-- [ ] 1. Skill-First Core Dual-State Patch (Queue + Cursor + Config)
+- [x] 1. Skill-First Core Dual-State Patch (Queue + Cursor + Config)
 
   **Execution State**: `undeployed`
 
