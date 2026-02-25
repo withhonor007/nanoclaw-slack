@@ -1,7 +1,0 @@
-T1 Preflight — PASS
-Date: 2026-02-24T08:45Z
-Mode: deployed (cat .nanoclaw/dev-mode → "deployed")
-Guard-check: PASS (deployed mode, guard changes allowed)
-Build: PASS (npm run build → exit 0)
-Tests: 388 passed, 0 failures, 1 todo (npx vitest run)
-Git: clean after re-adding src/index.ts (was untracked due to prior session)
