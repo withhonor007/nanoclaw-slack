@@ -1,5 +1,5 @@
 skill: slack
-version: 1.0.0
+version: 0.1.2
 description: 'Slack Bot (Socket Mode) integration via @slack/bolt — ported from claudecode-slackbot'
 core_version: 0.1.0
 adds:
@@ -17,6 +17,7 @@ modifies:
   - src/routing.test.ts
   - src/db.ts
   - src/ipc.ts
+  - groups/main/CLAUDE.md
 structured:
   npm_dependencies:
     '@slack/bolt': '^4.6.0'
