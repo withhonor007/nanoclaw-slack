@@ -56,6 +56,14 @@ describe('getAvailableGroups', () => {
     expect(groups[0].jid).toBe('group@g.us');
   });
 
+  it('excludes __slack_sync__ sentinel', () => {
+    storeChatMetadata('__slack_sync__', '2024-01-01T00:00:00.000Z');
+    storeChatMetadata('slack:C123', '2024-01-01T00:00:01.000Z', 'Slack Channel', 'slack', true);
+    const groups = getAvailableGroups();
+    expect(groups).toHaveLength(1);
+    expect(groups[0].jid).toBe('slack:C123');
+  });
+
   it('marks registered groups correctly', () => {
     storeChatMetadata('reg@g.us', '2024-01-01T00:00:01.000Z', 'Registered', 'whatsapp', true);
     storeChatMetadata('unreg@g.us', '2024-01-01T00:00:02.000Z', 'Unregistered', 'whatsapp', true);

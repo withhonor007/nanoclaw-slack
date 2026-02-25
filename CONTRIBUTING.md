@@ -8,11 +8,15 @@
 
 ## Skills
 
-A [skill](https://code.claude.com/docs/en/skills) is a markdown file in `.claude/skills/` that teaches Claude Code how to transform a NanoClaw installation.
+A skill lives in `.claude/skills/<name>/` and teaches Claude Code how to transform a NanoClaw installation. A PR that contributes a skill should not modify any source files outside `.claude/skills/`.
 
-A PR that contributes a skill should not modify any source files.
+Two formats are accepted:
 
-Your skill should contain the **instructions** Claude follows to add the feature—not pre-built code. See `/add-telegram` for a good example.
+**Instruction-based (simple):** A `SKILL.md` that contains the steps Claude follows to add the feature. Claude reads the instructions and applies changes manually. See `/add-telegram` for a good example.
+
+**Package-based (nanorepo):** A `SKILL.md` + `manifest.yaml` + pre-built code package that the [skills-engine](skills-engine/) applies deterministically via three-way merge. Use this format when the skill modifies multiple source files and needs to compose safely with other skills. The manifest declares `adds:`, `modifies:`, `structured:` sections; pre-built files go in `add/` and `modify/` subdirectories.
+
+When in doubt, start with the instruction-based format. Upgrade to package-based if the skill becomes complex or if deterministic replayability matters.
 
 ### Why?
 
@@ -20,4 +24,4 @@ Every user should have clean and minimal code that does exactly what they need. 
 
 ### Testing
 
-Test your skill by running it on a fresh clone before submitting.
+Test your skill by running it on a fresh clone before submitting. For package-based skills, also run `npx tsx scripts/apply-skill.ts --skill <name>` and verify the applied result passes tests.
