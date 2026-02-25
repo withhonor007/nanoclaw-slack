@@ -41,3 +41,32 @@
 ## 2026-02-25 Task: Learnings Errata
 
 - Placeholder-only bullets in the prior section were from a failed shell-quoted append and are superseded by the fully populated section below them
+
+## Task 2: Recovery Callback + Delivery Truthfulness (2026-02-25)
+
+### onRecovery callback pattern
+- Added `onRecovery?: () => void` to `SlackChannelOpts` interface (line 28 in slack.ts)
+- Called in watchdog's successful reconnect path after `this.reconnectAttempt = 0`
+- Wrapped in try/catch to prevent callback errors from crashing the watchdog loop
+- Logs `event: 'recovery_callback_error'` if callback throws
+
+### sendMessage delivery truthfulness
+- Changed `sendMessage` to re-throw after logging — caller now knows delivery failed
+- The existing test `'logs structured error on send failure'` was updated to expect a throw
+- Added dedicated test `'sendMessage throws on failure so caller knows delivery failed'`
+
+### index.ts wiring
+- `onRecovery` callback iterates `registeredGroups` and calls `queue.enqueueMessageCheck(jid)` for all `slack:` prefixed JIDs only
+- Logs `event: 'slack_recovery_resume'` on recovery
+- `processGroupMessages` streaming callback now wraps `channel.sendMessage` in try/catch
+- On send failure: logs `event: 'send_failed_non_delivery'`, `outputSentToUser` stays false → cursor rolls back for retry
+
+### Test patterns for watchdog callbacks
+- Use `vi.useFakeTimers()` + `vi.advanceTimersByTimeAsync(13 * 60 * 1000)` to trigger stale threshold
+- Then `vi.advanceTimersByTimeAsync(10_000)` to let backoff delay pass
+- `createOpts({ onRecovery })` pattern works since `createOpts` accepts `Partial<SlackChannelOpts>`
+
+### Skill test execution
+- Skill tests in `.claude/skills/add-slack/add/src/` are NOT in the runtime vitest include pattern
+- Runtime vitest only covers `src/`, `setup/`, `skills-engine/`
+- Skill tests must be run separately or via a custom vitest config when the skill is applied

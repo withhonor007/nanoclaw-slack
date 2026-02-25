@@ -213,8 +213,13 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
       const text = raw.replace(/<internal>[\s\S]*?<\/internal>/g, '').trim();
       logger.info({ group: group.name }, `Agent output: ${raw.slice(0, 200)}`);
       if (text) {
-        await channel.sendMessage(chatJid, text);
-        outputSentToUser = true;
+        try {
+          await channel.sendMessage(chatJid, text);
+          outputSentToUser = true;
+        } catch (sendErr) {
+          logger.error({ group: group.name, chatJid, sendErr, event: 'send_failed_non_delivery' }, 'Message send failed, treating as non-delivery');
+          // outputSentToUser stays false — cursor will roll back for retry
+        }
       }
       // Only reset idle timer on actual results, not session-update markers (result: null)
       resetIdleTimer();
@@ -499,7 +504,18 @@ async function main(): Promise<void> {
     const slack = new SlackChannel(
       SLACK_BOT_TOKEN,
       SLACK_APP_TOKEN,
-      channelOpts,
+      {
+        ...channelOpts,
+        onRecovery: () => {
+          // Clear exhausted state for all slack: groups
+          for (const [jid] of Object.entries(registeredGroups)) {
+            if (jid.startsWith('slack:')) {
+              queue.enqueueMessageCheck(jid);
+            }
+          }
+          logger.info({ event: 'slack_recovery_resume' }, 'Slack recovery: re-enqueuing slack groups');
+        },
+      },
     );
     channels.push(slack);
     await slack.connect();

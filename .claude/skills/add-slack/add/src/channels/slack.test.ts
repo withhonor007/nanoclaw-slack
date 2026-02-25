@@ -206,15 +206,12 @@ describe('SlackChannel', () => {
     expect(appRef.current.client.chat.postMessage).toHaveBeenCalledTimes(4);
   });
 
-  it('logs structured error on send failure', async () => {
+  it('logs structured error on send failure and re-throws', async () => {
     const channel = new SlackChannel('xoxb-token', 'xapp-token', createOpts());
     await channel.connect();
-
     const err = { code: 429, message: 'rate limited' };
     appRef.current.client.chat.postMessage.mockRejectedValueOnce(err);
-
-    await channel.sendMessage('slack:C123', 'hello');
-
+    await expect(channel.sendMessage('slack:C123', 'hello')).rejects.toEqual(err);
     expect(logger.error).toHaveBeenCalledWith(
       expect.objectContaining({
         event: 'slack_send_failed',
@@ -228,6 +225,14 @@ describe('SlackChannel', () => {
   });
 
   it.todo('Bolt WebClient handles 429 Retry-After internally');
+
+  it('sendMessage throws on failure so caller knows delivery failed', async () => {
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', createOpts());
+    await channel.connect();
+    const err = new Error('network error');
+    appRef.current.client.chat.postMessage.mockRejectedValueOnce(err);
+    await expect(channel.sendMessage('slack:C123', 'hello')).rejects.toThrow('network error');
+  });
 
   it('stores inbound message for registered channel and translates mention trigger', async () => {
     const opts = createOpts();
@@ -822,6 +827,56 @@ describe('SlackChannel', () => {
           reconnect_attempt: 1,
         }),
         expect.any(String),
+      );
+    });
+    it('calls onRecovery callback after successful reconnect', async () => {
+      const onRecovery = vi.fn();
+      const channel = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOpts({ onRecovery }),
+      );
+      await channel.connect();
+      // Advance past stale threshold — triggers reconnect (start() succeeds by default)
+      await vi.advanceTimersByTimeAsync(13 * 60 * 1000);
+      // Wait for backoff delay (attempt 1: ~5000ms)
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(onRecovery).toHaveBeenCalledTimes(1);
+    });
+    it('recovery callback is idempotent (multiple calls safe)', async () => {
+      const onRecovery = vi.fn();
+      const channel = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOpts({ onRecovery }),
+      );
+      await channel.connect();
+      // Trigger two successful reconnects
+      await vi.advanceTimersByTimeAsync(13 * 60 * 1000);
+      await vi.advanceTimersByTimeAsync(10_000);
+      await vi.advanceTimersByTimeAsync(13 * 60 * 1000);
+      await vi.advanceTimersByTimeAsync(10_000);
+      // Both calls should succeed without error
+      expect(onRecovery).toHaveBeenCalledTimes(2);
+    });
+    it('logs error if onRecovery callback throws but does not propagate', async () => {
+      const onRecovery = vi.fn().mockImplementation(() => {
+        throw new Error('callback error');
+      });
+      const channel = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOpts({ onRecovery }),
+      );
+      await channel.connect();
+      // Should not throw even if callback throws
+      await expect(
+        vi.advanceTimersByTimeAsync(13 * 60 * 1000),
+      ).resolves.toBeUndefined();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ event: 'recovery_callback_error' }),
+        'Recovery callback failed',
       );
     });
   });

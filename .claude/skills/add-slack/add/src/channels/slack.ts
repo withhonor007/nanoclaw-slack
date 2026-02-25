@@ -25,6 +25,7 @@ export interface SlackChannelOpts {
   onChatMetadata: OnChatMetadata;
   registeredGroups: () => Record<string, RegisteredGroup>;
   filterBotMessages?: boolean; // default true
+  onRecovery?: () => void; // Called when Slack reconnects after outage
 }
 
 export class SlackChannel implements Channel {
@@ -184,7 +185,7 @@ export class SlackChannel implements Channel {
         },
         'Failed to send Slack message after retries',
       );
-    }
+      throw err; // Re-throw so caller knows delivery failed
   }
 
   isConnected(): boolean {
@@ -363,6 +364,12 @@ export class SlackChannel implements Channel {
           `Reconnected in ${duration}ms`,
         );
         this.reconnectAttempt = 0;
+        // Emit recovery signal for exhausted groups
+        try {
+          this.opts.onRecovery?.();
+        } catch (recoveryErr) {
+          logger.error({ err: recoveryErr, event: 'recovery_callback_error' }, 'Recovery callback failed');
+        }
       } catch (err) {
         const duration = Date.now() - reconnectStart;
         logger.error(
