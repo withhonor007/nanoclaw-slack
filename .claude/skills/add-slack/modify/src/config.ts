@@ -9,6 +9,7 @@ import { readEnvFile } from './env.js';
 const envConfig = readEnvFile([
   'ASSISTANT_NAME',
   'ASSISTANT_HAS_OWN_NUMBER',
+  'RECOVERY_EXHAUSTED_GATE_MS',
   'SLACK_BOT_TOKEN',
   'SLACK_APP_TOKEN',
   'SLACK_ONLY',
@@ -55,6 +56,16 @@ export const MAX_CONCURRENT_CONTAINERS = Math.max(
   1,
   parseInt(process.env.MAX_CONCURRENT_CONTAINERS || '5', 10) || 5,
 );
+const recoveryExhaustedGateMsRaw =
+  process.env.RECOVERY_EXHAUSTED_GATE_MS ||
+  envConfig.RECOVERY_EXHAUSTED_GATE_MS ||
+  '0';
+const parsedRecoveryExhaustedGateMs = parseInt(recoveryExhaustedGateMsRaw, 10);
+export const RECOVERY_EXHAUSTED_GATE_MS =
+  Number.isFinite(parsedRecoveryExhaustedGateMs) &&
+  parsedRecoveryExhaustedGateMs >= 0
+    ? parsedRecoveryExhaustedGateMs
+    : 0;
 
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

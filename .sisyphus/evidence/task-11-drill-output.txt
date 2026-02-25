@@ -1,0 +1,60 @@
+
+══════════════════════════════════════════════════════
+  Phase 1: Pre-flight
+══════════════════════════════════════════════════════
+  [OK] Service running (PID: 1084203)
+  [OK] Log file exists (428194 lines)
+  [OK] Checkpoint script found: /dev/disk/disk1/clawbot/nanoclaw/scripts/slack/canary-checkpoint.sh
+  [OK] Evidence dir: /dev/disk/disk1/clawbot/nanoclaw/.sisyphus/evidence
+
+══════════════════════════════════════════════════════
+  Phase 2: Baseline Snapshot (canary-checkpoint.sh --dry-run)
+══════════════════════════════════════════════════════
+  Checkpoint output (truncated to 5 lines):
+    {
+      "timestamp": "2026-02-25T08:43:42Z",
+      "pid": 1084203,
+      "uptime_seconds": 57771,
+      "criteria": {
+  Checkpoint verdict: unknown
+
+══════════════════════════════════════════════════════
+  Phase 3: Recovery Event Scan
+══════════════════════════════════════════════════════
+  Scanning: /dev/disk/disk1/clawbot/nanoclaw/logs/nanoclaw.log
+
+  exhaustion_drop (group-queue.ts):        0 occurrences
+  cursor_commit_on_exhaustion (index.ts):  0 occurrences
+  send_failed_non_delivery (index.ts):     0 occurrences
+  slack_recovery_resume (index.ts):        0 occurrences
+  recovery_callback_error (slack.ts):      0 occurrences
+
+  Total recovery events observed: 0
+  Distinct event types seen: 0 / 5
+
+  Last occurrence of each event:
+    exhaustion_drop:                       (not found in log)
+    cursor_commit_on_exhaustion:           (not found in log)
+    send_failed_non_delivery:              (not found in log)
+    slack_recovery_resume:                 (not found in log)
+    recovery_callback_error:               (not found in log)
+
+══════════════════════════════════════════════════════
+  Phase 4: Evidence Assembly
+══════════════════════════════════════════════════════
+  Evidence written to: /dev/disk/disk1/clawbot/nanoclaw/.sisyphus/evidence/r4-drill-20260225T084342Z.txt
+
+══════════════════════════════════════════════════════
+  Phase 5: Verdict
+══════════════════════════════════════════════════════
+
+  Drill Status:  NO_RECOVERY_EVENTS
+  Events Seen:   0 / 5 distinct types
+  Total Events:  0 occurrences
+
+  INFO — No recovery events found in logs.
+         This is expected on a fresh install or if no outages have occurred.
+         The recovery machinery is in place but has not been triggered.
+
+  Evidence: /dev/disk/disk1/clawbot/nanoclaw/.sisyphus/evidence/r4-drill-20260225T084342Z.txt
+

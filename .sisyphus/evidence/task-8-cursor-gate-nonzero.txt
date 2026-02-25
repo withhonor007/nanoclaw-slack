@@ -1,0 +1,16 @@
+Task 8 Evidence - cursor_commit_on_exhaustion non-zero gate branch
+Date: 2026-02-25
+File: src/recovery.integration.test.ts
+Test added: non-zero exhaustion gate still commits exhausted cursor drop
+
+Assertions verified:
+- Config is re-mocked with RECOVERY_EXHAUSTED_GATE_MS = 60000.
+- Exhaustion drop callback fires once even with gate enabled.
+- Gate floor calculation path executes: gatedFloorMs = Date.now() - RECOVERY_EXHAUSTED_GATE_MS.
+- commitTimestamp is clamped to the computed gated floor for stale message timestamps.
+- Exhaustion drop behavior still resets queue state (retryCount=0, pendingMessages=false).
+
+Verification commands:
+- npx vitest run src/recovery.integration.test.ts  -> PASS (6/6 tests)
+- npm test                                         -> PASS (31 files, 416 passed)
+- npm run build                                    -> PASS

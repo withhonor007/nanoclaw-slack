@@ -17,7 +17,7 @@ import {
   RegisteredGroup,
 } from '../types.js';
 
-const SLACK_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const SLACK_SYNC_INTERVAL_MS = 30 * 60 * 1000;
 const SLACK_SYNC_SENTINEL = '__slack_sync__';
 
 export interface SlackChannelOpts {
@@ -25,6 +25,7 @@ export interface SlackChannelOpts {
   onChatMetadata: OnChatMetadata;
   registeredGroups: () => Record<string, RegisteredGroup>;
   filterBotMessages?: boolean; // default true
+  onRecovery?: () => void; // Called when Slack reconnects after outage
 }
 
 export class SlackChannel implements Channel {
@@ -184,6 +185,7 @@ export class SlackChannel implements Channel {
         },
         'Failed to send Slack message after retries',
       );
+      throw err; // Re-throw so caller knows delivery failed
     }
   }
 
@@ -266,6 +268,28 @@ export class SlackChannel implements Channel {
     }
   }
 
+  /**
+   * Resolve a Slack channel's display name from its ID via conversations.info.
+   * Returns the channel name for public/private channels, a fallback for DMs/MPIMs,
+   * or the raw channel ID if the lookup fails.
+   */
+  async resolveChannelName(channelId: string): Promise<string> {
+    if (!this.app || !this.connected) return channelId;
+    try {
+      const result = await this.app.client.conversations.info({ channel: channelId });
+      const ch = result.channel as
+        | { name?: string; is_im?: boolean; is_mpim?: boolean; user?: string }
+        | undefined;
+      if (!ch) return channelId;
+      if (ch.is_im) return `dm-${ch.user || channelId}`;
+      if (ch.is_mpim) return ch.name || `mpim-${channelId}`;
+      return ch.name || channelId;
+    } catch (err) {
+      logger.warn({ channelId, err }, 'Failed to resolve Slack channel name');
+      return channelId;
+    }
+  }
+
   async setTyping(jid: string, _isTyping: boolean): Promise<void> {
     // Note: Slack doesn't have a direct 'typing' indicator API for bots.
     // This is a no-op or could post a temporary status message.
@@ -341,6 +365,12 @@ export class SlackChannel implements Channel {
           `Reconnected in ${duration}ms`,
         );
         this.reconnectAttempt = 0;
+        // Emit recovery signal for exhausted groups
+        try {
+          this.opts.onRecovery?.();
+        } catch (recoveryErr) {
+          logger.error({ err: recoveryErr, event: 'recovery_callback_error' }, 'Recovery callback failed');
+        }
       } catch (err) {
         const duration = Date.now() - reconnectStart;
         logger.error(
@@ -417,7 +447,9 @@ export class SlackChannel implements Channel {
 
     // !chatid command — must work before group registration check (bootstrap)
     if (content === '!chatid') {
-      await this.sendMessage(chatJid, `Chat ID: ${chatJid}`);
+      const channelId = chatJid.replace(/^slack:/, '');
+      const name = await this.resolveChannelName(channelId);
+      await this.sendMessage(chatJid, `Chat ID: ${chatJid} (${name})`);
       return;
     }
 

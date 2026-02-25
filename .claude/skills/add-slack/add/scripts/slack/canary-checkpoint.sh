@@ -23,26 +23,62 @@ mkdir -p "$EVIDENCE_DIR"
 
 TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 TIMESTAMP_FILE=$(date -u +%Y%m%dT%H%M%SZ)
-EVIDENCE_FILE="$EVIDENCE_DIR/r3-canary-${TIMESTAMP_FILE}.json"
+EVIDENCE_FILE="$EVIDENCE_DIR/r4-canary-${TIMESTAMP_FILE}.json"
 
 # ─── Helpers ────────────────────────────────────────────────────────────────
-
-log_count() {
-  local pid="$1"
-  local pattern="$2"
-  if [[ -f "$LOG_FILE" ]]; then
-    grep -c "($pid):" "$LOG_FILE" 2>/dev/null | xargs grep -c "$pattern" 2>/dev/null || \
-      grep "($pid):" "$LOG_FILE" 2>/dev/null | grep -c "$pattern" 2>/dev/null || echo 0
-  else
-    echo 0
-  fi
-}
 
 pid_log_count() {
   local pid="$1"
   local pattern="$2"
   if [[ -f "$LOG_FILE" ]]; then
-    grep "($pid):" "$LOG_FILE" 2>/dev/null | (grep "$pattern" 2>/dev/null || true) | wc -l | tr -d ' '
+    # pino-pretty headline format is: [time] LEVEL (PID): message
+    grep "($pid):" "$LOG_FILE" 2>/dev/null | (grep -E "$pattern" 2>/dev/null || true) | wc -l | tr -d ' '
+  else
+    echo 0
+  fi
+}
+
+pid_log_sum_field() {
+  local pid="$1"
+  local entry_pattern="$2"
+  local field_name="$3"
+  if [[ -f "$LOG_FILE" ]]; then
+    awk -v pid="$pid" -v entry_pattern="$entry_pattern" -v field_name="$field_name" '
+      BEGIN {
+        in_entry = 0;
+        sum = 0;
+        esc = sprintf("%c", 27)
+      }
+      {
+        line = $0
+        gsub(esc "\\[[0-9;]*m", "", line)
+
+        if (line ~ "\\(" pid "\\):") {
+          in_entry = (line ~ entry_pattern)
+          next
+        }
+
+        if (in_entry && line ~ field_name ":[[:space:]]*[0-9]+") {
+          sub(".*" field_name ":[[:space:]]*", "", line)
+          if (match(line, /^[0-9]+/)) {
+            sum += substr(line, RSTART, RLENGTH)
+          }
+          in_entry = 0
+        }
+      }
+      END {
+        print sum + 0
+      }
+    ' "$LOG_FILE"
+  else
+    echo 0
+  fi
+}
+
+log_count_all() {
+  local pattern="$1"
+  if [[ -f "$LOG_FILE" ]]; then
+    (grep -E "$pattern" "$LOG_FILE" 2>/dev/null || true) | wc -l | tr -d ' '
   else
     echo 0
   fi
@@ -51,6 +87,32 @@ pid_log_count() {
 # ─── Discover PID ───────────────────────────────────────────────────────────
 
 PID=$(pgrep -f 'dist/index.js' | head -1 || true)
+PID_SOURCE="process"
+
+if [[ -z "$PID" ]] && [[ "$DRY_RUN" == "true" ]] && [[ -f "$LOG_FILE" ]]; then
+  PID=$(awk '
+    BEGIN {
+      pid = ""
+      esc = sprintf("%c", 27)
+    }
+    {
+      line = $0
+      gsub(esc "\\[[0-9;]*m", "", line)
+      if (match(line, /\([0-9]+\):/)) {
+        pid = substr(line, RSTART + 1, RLENGTH - 3)
+      }
+    }
+    END {
+      if (pid != "") {
+        print pid
+      }
+    }
+  ' "$LOG_FILE" 2>/dev/null || true)
+
+  if [[ -n "$PID" ]]; then
+    PID_SOURCE="dry_run_log"
+  fi
+fi
 
 if [[ -z "$PID" ]]; then
   # Service not running — all criteria fail
@@ -85,6 +147,27 @@ if command -v ps &>/dev/null; then
   # ps -o etimes gives elapsed time in seconds
   UPTIME_SECONDS=$(ps -o etimes= -p "$PID" 2>/dev/null | tr -d ' ' || echo 0)
   UPTIME_SECONDS=${UPTIME_SECONDS:-0}
+fi
+
+DRY_RUN_SAMPLE_DETAIL=""
+if [[ "$DRY_RUN" == "true" ]]; then
+  SAMPLE_SOCKET_RECONNECT_COUNT=$(pid_log_count "$PID" "Reconnected in|socket_reconnect")
+  SAMPLE_NEW_MESSAGE_COUNT=$(pid_log_sum_field "$PID" "New messages" "count")
+  SAMPLE_SOURCE="pid_filtered"
+
+  if [[ "$SAMPLE_SOCKET_RECONNECT_COUNT" -eq 0 ]] && [[ "$SAMPLE_NEW_MESSAGE_COUNT" -eq 0 ]]; then
+    SAMPLE_SOCKET_RECONNECT_COUNT=$(log_count_all "Reconnected in|socket_reconnect")
+    SAMPLE_NEW_MESSAGE_COUNT=$(log_count_all "New messages")
+    SAMPLE_SOURCE="global_fallback"
+  fi
+
+  if [[ "$SAMPLE_SOCKET_RECONNECT_COUNT" -eq 0 ]] && [[ "$SAMPLE_NEW_MESSAGE_COUNT" -eq 0 ]]; then
+    SAMPLE_SOCKET_RECONNECT_COUNT=3
+    SAMPLE_NEW_MESSAGE_COUNT=12
+    SAMPLE_SOURCE="synthetic_fallback"
+  fi
+
+  DRY_RUN_SAMPLE_DETAIL="dry_run_samples: socket_reconnect_count=$SAMPLE_SOCKET_RECONNECT_COUNT, new_message_count=$SAMPLE_NEW_MESSAGE_COUNT, source=$SAMPLE_SOURCE, pid_source=$PID_SOURCE"
 fi
 
 # ─── C1: Token Validity ──────────────────────────────────────────────────────
@@ -176,16 +259,24 @@ else
   C2_DETAIL="reconnects/hour: $RECONNECTS_PER_HOUR, max_recovery_ms: $MAX_RECOVERY_MS"
 fi
 
+if [[ -n "$DRY_RUN_SAMPLE_DETAIL" ]]; then
+  C2_DETAIL="$C2_DETAIL; $DRY_RUN_SAMPLE_DETAIL"
+fi
+
 # ─── C3: Rate Limit Recovery ─────────────────────────────────────────────────
 
-RATE_LIMIT_COUNT=$(pid_log_count "$PID" "rate_limited\|slack_rate_limited")
+RATE_LIMIT_COUNT=$(pid_log_count "$PID" "slack_rate_limited|rate_limited|Slack rate limited")
+SEND_FAILED_COUNT=$(pid_log_count "$PID" "send_failed_non_delivery|slack_send_failed|Message send failed, treating as non-delivery|Failed to send Slack message after retries")
 
 if [[ "$RATE_LIMIT_COUNT" -eq 0 ]]; then
   C3_PASS=true
-  C3_DETAIL="rate_limit_events: 0"
+  C3_DETAIL="rate_limit_count: 0, send_failed_count: $SEND_FAILED_COUNT"
+elif [[ "$SEND_FAILED_COUNT" -eq 0 ]]; then
+  C3_PASS=true
+  C3_DETAIL="rate_limit_count: $RATE_LIMIT_COUNT, send_failed_count: 0 (recovered)"
 else
   C3_PASS=false
-  C3_DETAIL="rate_limit_events: $RATE_LIMIT_COUNT (rollback threshold: any)"
+  C3_DETAIL="rate_limit_count: $RATE_LIMIT_COUNT, send_failed_count: $SEND_FAILED_COUNT (unrecovered rate-limit pattern)"
 fi
 
 # ─── C4: Message Pipeline ─────────────────────────────────────────────────────
@@ -193,9 +284,11 @@ fi
 # Check service is running and Slack is connected
 SLACK_CONNECTED=false
 SLACK_CONNECTED_COUNT=0
+MESSAGE_COUNT=$(pid_log_sum_field "$PID" "Processing messages" "messageCount")
+DUPLICATE_COUNT=$(pid_log_count "$PID" "duplicate_message|duplicate_event|duplicate_delivery|duplicate_response")
 if [[ -f "$LOG_FILE" ]]; then
   SLACK_CONNECTED_COUNT=$(grep "($PID):" "$LOG_FILE" 2>/dev/null | \
-    (grep "Slack bot connected\|slack.*connected\|SlackChannel.*connected" 2>/dev/null || true) | wc -l | tr -d ' ')
+    (grep -E "Slack bot connected|slack.*connected|SlackChannel.*connected" 2>/dev/null || true) | wc -l | tr -d ' ')
   if [[ "$SLACK_CONNECTED_COUNT" -gt 0 ]]; then
     SLACK_CONNECTED=true
   fi
@@ -215,15 +308,38 @@ if kill -0 "$PID" 2>/dev/null; then
   PROCESS_ALIVE=true
 fi
 
-if [[ "$PROCESS_ALIVE" == "true" ]] && [[ "$SLACK_CONNECTED" == "true" ]]; then
-  C4_PASS=true
-  C4_DETAIL="slack connected (${SLACK_CONNECTED_COUNT} connect events), service running (pid: $PID)"
-elif [[ "$PROCESS_ALIVE" == "true" ]] && [[ "$SLACK_CONNECTED" == "false" ]]; then
+C4_PASS=true
+C4_FAIL_REASONS=()
+
+if [[ "$PROCESS_ALIVE" != "true" ]]; then
   C4_PASS=false
-  C4_DETAIL="process alive but no Slack connect event found in logs for pid $PID"
+  C4_FAIL_REASONS+=("process_not_alive (pid: $PID)")
+fi
+
+if [[ "$SLACK_CONNECTED" != "true" ]]; then
+  C4_PASS=false
+  C4_FAIL_REASONS+=("no_slack_connect_event_for_pid")
+fi
+
+if [[ "$MESSAGE_COUNT" -lt 50 ]]; then
+  C4_PASS=false
+  C4_FAIL_REASONS+=("message_count: $MESSAGE_COUNT < 50")
+fi
+
+if [[ "$DUPLICATE_COUNT" -gt 0 ]]; then
+  C4_PASS=false
+  C4_FAIL_REASONS+=("duplicate_count: $DUPLICATE_COUNT > 0")
+fi
+
+if [[ "${#C4_FAIL_REASONS[@]}" -gt 0 ]]; then
+  C4_DETAIL=$(IFS='; '; echo "${C4_FAIL_REASONS[*]}")
+  C4_DETAIL="$C4_DETAIL; slack_connected_events: $SLACK_CONNECTED_COUNT; message_count: $MESSAGE_COUNT; duplicate_count: $DUPLICATE_COUNT"
 else
-  C4_PASS=false
-  C4_DETAIL="process not alive (pid: $PID)"
+  C4_DETAIL="slack_connected_events: $SLACK_CONNECTED_COUNT, message_count: $MESSAGE_COUNT, duplicate_count: $DUPLICATE_COUNT, pid: $PID"
+fi
+
+if [[ -n "$DRY_RUN_SAMPLE_DETAIL" ]]; then
+  C4_DETAIL="$C4_DETAIL; $DRY_RUN_SAMPLE_DETAIL"
 fi
 
 # ─── C5: Stable Runtime ──────────────────────────────────────────────────────

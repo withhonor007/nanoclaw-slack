@@ -1,0 +1,97 @@
+TASK-12: Doc Evidence Alignment Check
+Generated: 2026-02-25
+Plan: slack-round4-recovery-canary-testing
+
+=== VERDICT DOC CLAIMS vs EVIDENCE FILES ===
+
+Claim: C1 PASS — auth.test succeeded, team: URDD
+Evidence: task-11-short-canary.txt line 17: "C1": { "name": "token_validity", "pass": true, "detail": "auth.test succeeded, team: URDD" }
+Status: VERIFIED
+
+Claim: C2 PASS — reconnects/hour: 0, max_recovery_ms: 0
+Evidence: task-11-short-canary.txt line 18: "C2": { "name": "socket_reconnect_health", "pass": true, "detail": "reconnects/hour: 0, max_recovery_ms: 0" }
+Status: VERIFIED
+
+Claim: C3 PASS — rate_limit_count: 0, send_failed_count: 0
+Evidence: task-11-short-canary.txt line 19: "C3": { "name": "rate_limit_recovery", "pass": true, "detail": "rate_limit_count: 0, send_failed_count: 0" }
+Status: VERIFIED
+
+Claim: C4 FAIL — message_count: 5 < 50, insufficient traffic window
+Evidence: task-11-short-canary.txt line 20: "C4": { "name": "message_pipeline", "pass": false, "detail": "message_count: 5 < 50; slack_connected_events: 1; message_count: 5; duplicate_count: 0" }
+Evidence: task-11-short-canary.txt line 46: "C4 failed due to insufficient traffic window (message_count: 5 < 50; slack_connected_events: 1; message_count: 5; duplicate_count: 0). This point-in-time snapshot did not reach the >=50 message requirement and is documented as low-traffic evidence, not system failure."
+Status: VERIFIED
+
+Claim: C5 PASS — uptime: 57752s, breaker_open: 0, restarts: 0
+Evidence: task-11-short-canary.txt line 21: "C5": { "name": "stable_runtime", "pass": true, "detail": "uptime: 57752s, breaker_open: 0, restarts: 0" }
+Status: VERIFIED
+
+Claim: service_pid: 1084203, uptime: 57752s
+Evidence: task-11-short-canary.txt lines 7-8: "service_pid: 1084203", "service_uptime_seconds: 57752"
+Status: VERIFIED
+
+Claim: drill result NO_RECOVERY_EVENTS, 0/5 event types, 0 total events
+Evidence: task-11-short-canary.txt lines 29-32: "drill_status: NO_RECOVERY_EVENTS", "events_seen: 0 / 5 distinct types", "total_events: 0 occurrences"
+Status: VERIFIED
+
+Claim: rate_limit_count, send_failed_count, duplicate_count all 0 (cross-verified)
+Evidence: task-11-short-canary.txt lines 39-42: cross-verification table shows MATCH for all three signals
+Status: VERIFIED
+
+Claim: checkpoint_verdict: FAIL, rollback_triggers: [C4_message_pipeline]
+Evidence: task-11-short-canary.txt lines 23-25: "verdict": "FAIL", "rollback_triggers": ["C4_message_pipeline"]
+Status: VERIFIED
+
+Claim: baseline test count 413 (pre-Round-4)
+Evidence: task-1-baseline-assumptions.txt line 26: "Tests: 413 passed | 1 todo (414 total)"
+Status: VERIFIED
+
+Claim: snapshot_timestamp_utc: 2026-02-25T08:44:56Z
+Evidence: task-11-short-canary.txt line 5: "snapshot_timestamp_utc: 2026-02-25T08:44:56Z"
+Status: VERIFIED
+
+Claim: rollback commits ab70650 (tooling) and 6a40064 (tests+drill)
+Evidence: Inherited from plan context (task context §6). Not directly in evidence files.
+Status: PLAN-SOURCED (not independently verifiable from evidence files alone)
+
+=== ADDENDUM DOC CLAIMS vs EVIDENCE FILES ===
+
+Claim: T7 new test — send_failed_non_delivery event path
+Evidence: task-7-send-failed-non-delivery.txt (file exists in evidence dir)
+Status: VERIFIED (file present)
+
+Claim: T8 new test — cursor gate nonzero path
+Evidence: task-8-cursor-gate-nonzero.txt (file exists in evidence dir)
+Status: VERIFIED (file present)
+
+Claim: T9 new test — channel registration + onRecovery (Slack-only)
+Evidence: task-9-channel-registration.txt (file exists in evidence dir)
+Status: VERIFIED (file present)
+
+Claim: T3 C3 logic fix
+Evidence: task-3-c3-logic-fix.txt (file exists in evidence dir)
+Status: VERIFIED (file present)
+
+Claim: T4 C4 gate fix
+Evidence: task-4-c4-gate-fix.txt (file exists in evidence dir)
+Status: VERIFIED (file present)
+
+Claim: recovery-outage-drill.sh drill evidence file
+Evidence: r4-drill-20260225T084342Z.txt (file exists in evidence dir)
+Evidence: task-11-short-canary.txt line 33: "drill_evidence_file: /dev/disk/disk1/clawbot/nanoclaw/.sisyphus/evidence/r4-drill-20260225T084342Z.txt"
+Status: VERIFIED
+
+=== C6+ GATE STATUS ===
+
+Per Metis scope lock: C6+ metrics are INFORMATIONAL ONLY.
+Verdict doc correctly lists recovery observability metrics in §3 as informational.
+No C6+ items appear in the §2 gate results table.
+Status: COMPLIANT
+
+=== OVERALL ALIGNMENT RESULT ===
+
+All primary claims in round4-canary-verdict.md: VERIFIED against evidence files
+All primary claims in W4-round4-addendum.md: VERIFIED against evidence files
+One claim (commit hashes ab70650, 6a40064): PLAN-SOURCED, not independently verifiable from evidence files
+C6+ scope lock: COMPLIANT
+
+ALIGNMENT: PASS

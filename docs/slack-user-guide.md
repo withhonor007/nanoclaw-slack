@@ -30,6 +30,7 @@ Core features:
 - Each channel has isolated filesystem and memory (`CLAUDE.md`)
 - Messages over 40,000 characters are automatically split
 - Built-in bot self-loop protection, event deduplication, socket reconnection
+- Channel name auto-resolution — no manual name entry needed during registration
 
 ---
 
@@ -81,11 +82,12 @@ This outputs a one-click creation URL.
 Click the generated link. Slack auto-configures all required scopes and event subscriptions:
 
 - `app_mentions:read` — receive @mentions
-- `channels:history` / `groups:history` / `im:history` — read messages
+- `channels:history` / `groups:history` / `im:history` / `mpim:history` — read messages
+- `channels:read` / `groups:read` — resolve channel names and metadata
 - `chat:write` — send messages
 - `users:read` — query user info
 - Socket Mode enabled
-- Event subscriptions configured (`app_mention`, `message.channels`, `message.im`)
+- Event subscriptions configured (`app_mention`, `message.channels`, `message.groups`, `message.im`, `message.mpim`)
 
 ### Step 3: Get Tokens
 
@@ -135,8 +137,8 @@ After the bot starts, you need to register channels for it to respond.
 
 1. Invite the bot to a channel: `/invite @YourBotName`
 2. Mention the bot in the channel, or send `!chatid`
-3. Bot replies with the channel ID, e.g. `slack:C0123456789`
-4. For DMs: message the bot directly, send `!chatid` to get the ID
+3. Bot replies with the channel ID and name, e.g. `Chat ID: slack:C0123456789 (general)`
+4. For DMs: message the bot directly, send `!chatid` to get the ID (shows `dm-{user_id}`)
 
 Channel ID prefixes:
 
@@ -152,8 +154,10 @@ The Main Channel is your private admin channel with full privileges. Use a DM or
 
 Tell the Agent in Claude Code:
 ```
-Register slack:D0123456789 as main channel, name "My Admin"
+Register slack:D0123456789 as main channel
 ```
+
+The channel name is auto-resolved from Slack's API — you don't need to provide it manually. If the name can't be resolved (e.g. bot just joined and metadata hasn't synced yet), the raw JID is used as fallback.
 
 Main Channel privileges:
 - No trigger word needed — all messages route to Agent
@@ -165,7 +169,12 @@ Main Channel privileges:
 ### Register Regular Channel
 
 ```
-Register slack:C0123456789 as regular channel, name "Team Chat"
+Register slack:C0123456789 as regular channel
+```
+
+You can optionally provide a name to override the auto-resolved one:
+```
+Register slack:C0123456789 as regular channel, name "Custom Name"
 ```
 
 Regular channel behavior:
@@ -204,7 +213,7 @@ Or use the trigger word (default `@Andy`):
 
 | Command | Function | Scope |
 |---------|----------|-------|
-| `!chatid` | Returns the channel's registration ID | All channels (including unregistered) |
+| `!chatid` | Returns the channel's JID and resolved name (e.g. `Chat ID: slack:C123 (general)`) | All channels (including unregistered) |
 
 ### File Attachments
 
@@ -268,7 +277,7 @@ Key log events:
 | `Slack bot connected via Socket Mode` | Connected successfully |
 | `slack_rate_limited` | Slack API rate limit hit, auto-waiting and retrying |
 | `slack_send_failed` | Message send failed (retries exhausted) |
-| `socket_stale` | No events for 3 minutes, triggering reconnect |
+| `socket_stale` | No events for 12 minutes, triggering reconnect |
 | `socket_reconnect` | Reconnect result (success/failure) |
 | `token_revoked` | Token revoked, bot disconnecting |
 | `app_uninstalled` | App uninstalled, bot disconnecting |
@@ -291,8 +300,10 @@ The Slack integration includes automatic protections:
 |-----------|-------------|
 | Bot self-loop protection | Triple filter: subtype + botUserId + bot_id |
 | Event deduplication | `channel:ts` key + 5-minute TTL in-memory Map |
-| Rate limiting | Bolt auto-handles 429 Retry-After, 3 retries with exponential backoff |
-| Socket watchdog | Checks every 60s, auto-reconnects if no events for 3 minutes |
+| Rate limiting | Bolt handles 429 Retry-After with 1 retry; watchdog manages reconnection |
+| Socket watchdog | Checks every 60s, auto-reconnects if no events for 12 minutes |
+| Reconnect policy | Exponential backoff (5s base, 2x factor, ±20% jitter), circuit breaker exits after 5 failures |
+| Channel metadata sync | Auto-syncs channel names from Slack API every 30 minutes |
 | Token lifecycle | Listens for `tokens_revoked` and `app_uninstalled` events |
 | Safe Mode | If `auth.test()` fails, enters safe mode — forces all bot messages filtered |
 
@@ -330,16 +341,16 @@ Check in order:
 ### Socket Disconnects
 
 - Search logs: `grep -E 'socket_stale|socket_reconnect' logs/nanoclaw.log`
-- `socket_stale` means no events for 3+ minutes — normal during quiet periods
+- `socket_stale` means no events for 12+ minutes — normal during quiet periods
 - `socket_reconnect` with error means reconnect failed — check if `SLACK_APP_TOKEN` is valid
-- If `reconnect_attempt` keeps climbing, the App Token may be revoked — regenerate in Slack settings
+- If `reconnect_attempt` reaches 5, the circuit breaker triggers `process.exit(1)` — systemd/launchd will restart the service
 
 ### Rate Limiting
 
 - Search logs: `grep slack_rate_limited logs/nanoclaw.log`
 - `retry_after_s` field shows wait duration
 - If triggered frequently, reduce message sending frequency
-- 3 consecutive final failures log `slack_send_failed`
+- Send failures log `slack_send_failed` after Bolt's built-in retry is exhausted
 
 ---
 

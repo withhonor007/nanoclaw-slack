@@ -1,0 +1,28 @@
+r4-outage-drill evidence
+========================
+timestamp:    2026-02-25T08:43:42Z
+drill_status: NO_RECOVERY_EVENTS
+dry_run:      false
+pid:          1084203
+
+--- Pre-flight ---
+service_running: true (pid=1084203)
+log_file: exists (lines=428194)
+checkpoint_script: exists
+
+--- Baseline Checkpoint ---
+verdict: unknown
+output_lines: 14
+
+--- Recovery Event Counts ---
+exhaustion_drop:              0
+cursor_commit_on_exhaustion:  0
+send_failed_non_delivery:     0
+slack_recovery_resume:        0
+recovery_callback_error:      0
+total_events:                 0
+distinct_types_seen:          0 / 5
+
+--- Verdict ---
+NO_RECOVERY_EVENTS
+

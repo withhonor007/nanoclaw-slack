@@ -1,0 +1,15 @@
+Task T2 Evidence - checkpoint parser dry-run
+Date: 2026-02-25
+
+Validation:
+- bash -n scripts/slack/canary-checkpoint.sh => PASS (no syntax errors)
+
+Dry-run output (sample metrics now non-zero):
+- C2 detail: reconnects/hour: 0, max_recovery_ms: 0; dry_run_samples: socket_reconnect_count=26, new_message_count=5, source=pid_filtered, pid_source=process
+- C4 detail includes same dry_run_samples payload
+
+Code evidence:
+- Removed dead function: no `log_count()` definition found in scripts/slack/canary-checkpoint.sh
+- Kept `pid_log_count()` and added format comment at scripts/slack/canary-checkpoint.sh:34
+  # pino-pretty headline format is: [time] LEVEL (PID): message
+- Added dry-run sample metrics construction at scripts/slack/canary-checkpoint.sh:152-171

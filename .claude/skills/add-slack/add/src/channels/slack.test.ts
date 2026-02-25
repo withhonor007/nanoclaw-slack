@@ -46,6 +46,9 @@ vi.mock('@slack/bolt', () => ({
           ],
           response_metadata: { next_cursor: '' },
         }),
+        info: vi.fn().mockResolvedValue({
+          channel: { id: 'C123', name: 'general', is_im: false, is_mpim: false },
+        }),
       },
     };
     receiver: { on?: (event: string, fn: () => void) => void } = {};
@@ -203,15 +206,12 @@ describe('SlackChannel', () => {
     expect(appRef.current.client.chat.postMessage).toHaveBeenCalledTimes(4);
   });
 
-  it('logs structured error on send failure', async () => {
+  it('logs structured error on send failure and re-throws', async () => {
     const channel = new SlackChannel('xoxb-token', 'xapp-token', createOpts());
     await channel.connect();
-
     const err = { code: 429, message: 'rate limited' };
     appRef.current.client.chat.postMessage.mockRejectedValueOnce(err);
-
-    await channel.sendMessage('slack:C123', 'hello');
-
+    await expect(channel.sendMessage('slack:C123', 'hello')).rejects.toEqual(err);
     expect(logger.error).toHaveBeenCalledWith(
       expect.objectContaining({
         event: 'slack_send_failed',
@@ -225,6 +225,14 @@ describe('SlackChannel', () => {
   });
 
   it.todo('Bolt WebClient handles 429 Retry-After internally');
+
+  it('sendMessage throws on failure so caller knows delivery failed', async () => {
+    const channel = new SlackChannel('xoxb-token', 'xapp-token', createOpts());
+    await channel.connect();
+    const err = new Error('network error');
+    appRef.current.client.chat.postMessage.mockRejectedValueOnce(err);
+    await expect(channel.sendMessage('slack:C123', 'hello')).rejects.toThrow('network error');
+  });
 
   it('stores inbound message for registered channel and translates mention trigger', async () => {
     const opts = createOpts();
@@ -436,7 +444,7 @@ describe('SlackChannel', () => {
     expect(opts.onMessage).toHaveBeenCalledTimes(2);
   });
 
-  it('responds to !chatid command', async () => {
+  it('responds to !chatid command with channel name', async () => {
     const opts = createOpts();
     const channel = new SlackChannel('xoxb-token', 'xapp-token', opts);
     await channel.connect();
@@ -448,9 +456,12 @@ describe('SlackChannel', () => {
       ts: '1704067200.000012',
     });
 
+    expect(appRef.current.client.conversations.info).toHaveBeenCalledWith({
+      channel: 'C123',
+    });
     expect(appRef.current.client.chat.postMessage).toHaveBeenCalledWith({
       channel: 'C123',
-      text: 'Chat ID: slack:C123',
+      text: 'Chat ID: slack:C123 (general)',
     });
     expect(opts.onMessage).not.toHaveBeenCalled();
   });
@@ -818,6 +829,54 @@ describe('SlackChannel', () => {
         expect.any(String),
       );
     });
+    it('calls onRecovery callback after successful reconnect', async () => {
+      const onRecovery = vi.fn();
+      const channel = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOpts({ onRecovery }),
+      );
+      await channel.connect();
+      // Advance past stale threshold — triggers reconnect (start() succeeds by default)
+      await vi.advanceTimersByTimeAsync(13 * 60 * 1000);
+      // Wait for backoff delay (attempt 1: ~5000ms)
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(onRecovery).toHaveBeenCalledTimes(1);
+    });
+    it('recovery callback is idempotent (multiple calls safe)', async () => {
+      const onRecovery = vi.fn();
+      const channel = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOpts({ onRecovery }),
+      );
+      await channel.connect();
+      // Trigger two successful reconnects
+      await vi.advanceTimersByTimeAsync(13 * 60 * 1000);
+      await vi.advanceTimersByTimeAsync(10_000);
+      await vi.advanceTimersByTimeAsync(13 * 60 * 1000);
+      await vi.advanceTimersByTimeAsync(10_000);
+      // Both calls should succeed without error
+      expect(onRecovery).toHaveBeenCalledTimes(2);
+    });
+    it('logs error if onRecovery callback throws but does not propagate', async () => {
+      const onRecovery = vi.fn().mockImplementation(() => {
+        throw new Error('callback error');
+      });
+      const channel = new SlackChannel(
+        'xoxb-token',
+        'xapp-token',
+        createOpts({ onRecovery }),
+      );
+      await channel.connect();
+      // Should not throw even if callback throws
+      await vi.advanceTimersByTimeAsync(13 * 60 * 1000);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({ event: 'recovery_callback_error' }),
+        'Recovery callback failed',
+      );
+    });
   });
 
   describe('syncChannelMetadata', () => {
@@ -931,6 +990,51 @@ describe('SlackChannel', () => {
 
       expect((channel as any).syncTimerStarted).toBe(false);
       expect((channel as any).syncTimer).toBeNull();
+    });
+  });
+
+  describe('resolveChannelName', () => {
+    it('resolves public channel name', async () => {
+      const channel = new SlackChannel('xoxb-token', 'xapp-token', createOpts());
+      await channel.connect();
+
+      appRef.current.client.conversations.info.mockResolvedValueOnce({
+        channel: { id: 'C123', name: 'general', is_im: false, is_mpim: false },
+      });
+
+      const name = await channel.resolveChannelName('C123');
+      expect(name).toBe('general');
+    });
+
+    it('returns dm- prefix for DMs', async () => {
+      const channel = new SlackChannel('xoxb-token', 'xapp-token', createOpts());
+      await channel.connect();
+
+      appRef.current.client.conversations.info.mockResolvedValueOnce({
+        channel: { id: 'D123', is_im: true, user: 'U456' },
+      });
+
+      const name = await channel.resolveChannelName('D123');
+      expect(name).toBe('dm-U456');
+    });
+
+    it('falls back to channelId on error', async () => {
+      const channel = new SlackChannel('xoxb-token', 'xapp-token', createOpts());
+      await channel.connect();
+
+      appRef.current.client.conversations.info.mockRejectedValueOnce(
+        new Error('not_found'),
+      );
+
+      const name = await channel.resolveChannelName('C999');
+      expect(name).toBe('C999');
+    });
+
+    it('returns channelId when not connected', async () => {
+      const channel = new SlackChannel('xoxb-token', 'xapp-token', createOpts());
+      // Don't connect
+      const name = await channel.resolveChannelName('C123');
+      expect(name).toBe('C123');
     });
   });
 });

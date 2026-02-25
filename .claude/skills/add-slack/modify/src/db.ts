@@ -3,7 +3,12 @@ import fs from 'fs';
 import path from 'path';
 
 import { ASSISTANT_NAME, DATA_DIR, STORE_DIR } from './config.js';
-import { NewMessage, RegisteredGroup, ScheduledTask, TaskRunLog } from './types.js';
+import {
+  NewMessage,
+  RegisteredGroup,
+  ScheduledTask,
+  TaskRunLog,
+} from './types.js';
 
 let db: Database.Database;
 
@@ -92,26 +97,30 @@ function createSchema(database: Database.Database): void {
       `ALTER TABLE messages ADD COLUMN is_bot_message INTEGER DEFAULT 0`,
     );
     // Backfill: mark existing bot messages that used the content prefix pattern
-    database.prepare(
-      `UPDATE messages SET is_bot_message = 1 WHERE content LIKE ?`,
-    ).run(`${ASSISTANT_NAME}:%`);
+    database
+      .prepare(`UPDATE messages SET is_bot_message = 1 WHERE content LIKE ?`)
+      .run(`${ASSISTANT_NAME}:%`);
   } catch {
     /* column already exists */
   }
 
   // Add channel and is_group columns if they don't exist (migration for existing DBs)
   try {
-    database.exec(
-      `ALTER TABLE chats ADD COLUMN channel TEXT`,
-    );
-    database.exec(
-      `ALTER TABLE chats ADD COLUMN is_group INTEGER DEFAULT 0`,
-    );
+    database.exec(`ALTER TABLE chats ADD COLUMN channel TEXT`);
+    database.exec(`ALTER TABLE chats ADD COLUMN is_group INTEGER DEFAULT 0`);
     // Backfill from JID patterns
-    database.exec(`UPDATE chats SET channel = 'whatsapp', is_group = 1 WHERE jid LIKE '%@g.us'`);
-    database.exec(`UPDATE chats SET channel = 'whatsapp', is_group = 0 WHERE jid LIKE '%@s.whatsapp.net'`);
-    database.exec(`UPDATE chats SET channel = 'discord', is_group = 1 WHERE jid LIKE 'dc:%'`);
-    database.exec(`UPDATE chats SET channel = 'telegram', is_group = 1 WHERE jid LIKE 'tg:%'`);
+    database.exec(
+      `UPDATE chats SET channel = 'whatsapp', is_group = 1 WHERE jid LIKE '%@g.us'`,
+    );
+    database.exec(
+      `UPDATE chats SET channel = 'whatsapp', is_group = 0 WHERE jid LIKE '%@s.whatsapp.net'`,
+    );
+    database.exec(
+      `UPDATE chats SET channel = 'discord', is_group = 1 WHERE jid LIKE 'dc:%'`,
+    );
+    database.exec(
+      `UPDATE chats SET channel = 'telegram', is_group = 1 WHERE jid LIKE 'tg:%'`,
+    );
   } catch {
     /* columns already exist */
   }
@@ -237,7 +246,34 @@ export function setLastGroupSync(sentinel = '__group_sync__'): void {
  * No-op if the JID is not registered.
  */
 export function updateRegisteredGroupName(jid: string, name: string): void {
-  db.prepare(`UPDATE registered_groups SET name = ? WHERE jid = ?`).run(name, jid);
+  db.prepare(`UPDATE registered_groups SET name = ? WHERE jid = ?`).run(
+    name,
+    jid,
+  );
+}
+
+/**
+ * Look up a chat's display name from the chats table.
+ * Returns null if the JID is not found or has no name.
+ */
+export function getChatName(jid: string): string | null {
+  const row = db.prepare('SELECT name FROM chats WHERE jid = ?').get(jid) as
+    | { name: string }
+    | undefined;
+  return row?.name || null;
+}
+
+/**
+ * Check if the bot has already responded in a chat after a given timestamp.
+ * Used to detect messages that were piped to a container and successfully processed,
+ * preventing duplicate responses when drainGroup re-checks.
+ */
+export function hasBotResponseAfter(
+  chatJid: string,
+  sinceTimestamp: string,
+): boolean {
+  const sql = `SELECT 1 FROM messages WHERE chat_jid = ? AND timestamp > ? AND is_bot_message = 1 LIMIT 1`;
+  return !!db.prepare(sql).get(chatJid, sinceTimestamp);
 }
 
 /**
@@ -333,6 +369,21 @@ export function getMessagesSince(
   return db
     .prepare(sql)
     .all(chatJid, sinceTimestamp, `${botPrefix}:%`) as NewMessage[];
+}
+
+export function getLatestUserMessageTimestamp(chatJid: string): string | null {
+  const sql = `
+    SELECT timestamp
+    FROM messages
+    WHERE chat_jid = ?
+      AND is_bot_message = 0 AND content NOT LIKE ?
+    ORDER BY timestamp DESC
+    LIMIT 1
+  `;
+  const row = db.prepare(sql).get(chatJid, `${ASSISTANT_NAME}:%`) as
+    | { timestamp: string }
+    | undefined;
+  return row?.timestamp || null;
 }
 
 export function createTask(
@@ -537,14 +588,12 @@ export function getRegisteredGroup(
     containerConfig: row.container_config
       ? JSON.parse(row.container_config)
       : undefined,
-    requiresTrigger: row.requires_trigger === null ? undefined : row.requires_trigger === 1,
+    requiresTrigger:
+      row.requires_trigger === null ? undefined : row.requires_trigger === 1,
   };
 }
 
-export function setRegisteredGroup(
-  jid: string,
-  group: RegisteredGroup,
-): void {
+export function setRegisteredGroup(jid: string, group: RegisteredGroup): void {
   db.prepare(
     `INSERT OR REPLACE INTO registered_groups (jid, name, folder, trigger_pattern, added_at, container_config, requires_trigger)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -560,9 +609,7 @@ export function setRegisteredGroup(
 }
 
 export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
-  const rows = db
-    .prepare('SELECT * FROM registered_groups')
-    .all() as Array<{
+  const rows = db.prepare('SELECT * FROM registered_groups').all() as Array<{
     jid: string;
     name: string;
     folder: string;
@@ -581,7 +628,8 @@ export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
       containerConfig: row.container_config
         ? JSON.parse(row.container_config)
         : undefined,
-      requiresTrigger: row.requires_trigger === null ? undefined : row.requires_trigger === 1,
+      requiresTrigger:
+        row.requires_trigger === null ? undefined : row.requires_trigger === 1,
     };
   }
   return result;
