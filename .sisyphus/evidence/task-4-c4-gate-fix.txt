@@ -1,0 +1,16 @@
+Task T4 Evidence - C4 message-count and idempotency gate
+Date: 2026-02-25
+
+Implemented C4 requirements in scripts/slack/canary-checkpoint.sh:
+- message_count from logs: pid_log_sum_field "$PID" "Processing messages" "messageCount"
+- duplicate detection signal: pid_log_count with duplicate patterns
+- >=50 threshold: FAIL when message_count < 50
+- PASS only when process alive + slack connected + message_count >= 50 + duplicate_count == 0
+
+Key lines:
+- scripts/slack/canary-checkpoint.sh:287-343
+
+Dry-run output proof:
+- C4 pass: false
+- C4 detail: message_count: 5 < 50; slack_connected_events: 1; message_count: 5; duplicate_count: 0; dry_run_samples: socket_reconnect_count=26, new_message_count=5, source=pid_filtered, pid_source=process
+- Explicit count in detail confirms threshold gate behavior

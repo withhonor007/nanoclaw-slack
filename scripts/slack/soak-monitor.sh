@@ -4,13 +4,12 @@
 
 INTERVAL=${1:-15}
 TOTAL=${2:-120}
-EVIDENCE_FILE=".sisyphus/evidence/r3-task-7-soak.txt"
+EVIDENCE_FILE=".sisyphus/evidence/r4-soak.txt"
 START_TIME=$(date +%s)
-PID=$(pgrep -f 'dist/index.js' | head -1)
+PREV_PID=""
 
 echo "=== Phase B: Low-Traffic 2h Soak ===" > "$EVIDENCE_FILE"
 echo "Start: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$EVIDENCE_FILE"
-echo "PID: $PID" >> "$EVIDENCE_FILE"
 echo "Interval: ${INTERVAL}m, Total: ${TOTAL}m" >> "$EVIDENCE_FILE"
 echo "" >> "$EVIDENCE_FILE"
 
@@ -22,30 +21,41 @@ while true; do
   fi
   
   CHECKPOINT=$((CHECKPOINT + 1))
+  # Re-discover PID each checkpoint to survive restarts
+  PID=$(pgrep -f 'dist/index.js' | head -1)
+
   echo "--- Checkpoint $CHECKPOINT (T+${ELAPSED}m) $(date -u +%Y-%m-%dT%H:%M:%SZ) ---" >> "$EVIDENCE_FILE"
   
   # Check if process is still running
-  if ! kill -0 "$PID" 2>/dev/null; then
-    echo "FAIL: Process $PID is no longer running!" >> "$EVIDENCE_FILE"
+  if [ -z "$PID" ] || ! kill -0 "$PID" 2>/dev/null; then
+    echo "FAIL: Process is no longer running!" >> "$EVIDENCE_FILE"
     echo "SOAK RESULT: FAIL — process died" >> "$EVIDENCE_FILE"
     exit 1
   fi
   
   # Count reconnect events
-  STALE=$(grep "$PID" logs/nanoclaw.log | grep -c "socket_stale" 2>/dev/null || echo 0)
-  RECONNECT=$(grep "$PID" logs/nanoclaw.log | grep -c "socket_reconnect" 2>/dev/null || echo 0)
-  BREAKER=$(grep "$PID" logs/nanoclaw.log | grep -c "breaker_open" 2>/dev/null || echo 0)
-  RATE_LIMIT=$(grep "$PID" logs/nanoclaw.log | grep -c "rate_limited" 2>/dev/null || echo 0)
+  STALE=$(grep "$PID" logs/nanoclaw.log 2>/dev/null | grep -c "socket_stale"; true)
+  RECONNECT=$(grep "$PID" logs/nanoclaw.log 2>/dev/null | grep -c "socket_reconnect"; true)
+  BREAKER=$(grep "$PID" logs/nanoclaw.log 2>/dev/null | grep -c "breaker_open"; true)
+  RATE_LIMIT=$(grep "$PID" logs/nanoclaw.log 2>/dev/null | grep -c "rate_limited"; true)
   
+  echo "  PID: $PID" >> "$EVIDENCE_FILE"
+
+  # Detect PID change (service restarted)
+  if [ -n "$PREV_PID" ] && [ "$PID" != "$PREV_PID" ]; then
+    echo "  PID changed: $PREV_PID -> $PID" >> "$EVIDENCE_FILE"
+  fi
+  PREV_PID="$PID"
+
   echo "  Process: running" >> "$EVIDENCE_FILE"
   echo "  socket_stale events: $STALE" >> "$EVIDENCE_FILE"
   echo "  socket_reconnect events: $RECONNECT" >> "$EVIDENCE_FILE"
   echo "  breaker_open events: $BREAKER" >> "$EVIDENCE_FILE"
   echo "  rate_limited events: $RATE_LIMIT" >> "$EVIDENCE_FILE"
   
-  # Calculate reconnects per hour
+  # Calculate reconnects per hour — pure bash integer arithmetic (no bc dependency)
   if [ "$ELAPSED" -gt 0 ]; then
-    RECONNECTS_PER_HOUR=$(echo "scale=2; $RECONNECT * 60 / $ELAPSED" | bc 2>/dev/null || echo "N/A")
+    RECONNECTS_PER_HOUR=$(( RECONNECT * 60 / ELAPSED ))
     echo "  reconnects/hour: $RECONNECTS_PER_HOUR" >> "$EVIDENCE_FILE"
   fi
   
@@ -63,9 +73,9 @@ echo "End: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$EVIDENCE_FILE"
 echo "Duration: ${TOTAL}m" >> "$EVIDENCE_FILE"
 
 # Final counts
-STALE=$(grep "$PID" logs/nanoclaw.log | grep -c "socket_stale" 2>/dev/null || echo 0)
-RECONNECT=$(grep "$PID" logs/nanoclaw.log | grep -c "socket_reconnect" 2>/dev/null || echo 0)
-BREAKER=$(grep "$PID" logs/nanoclaw.log | grep -c "breaker_open" 2>/dev/null || echo 0)
+STALE=$(grep "$PID" logs/nanoclaw.log 2>/dev/null | grep -c "socket_stale"; true)
+RECONNECT=$(grep "$PID" logs/nanoclaw.log 2>/dev/null | grep -c "socket_reconnect"; true)
+BREAKER=$(grep "$PID" logs/nanoclaw.log 2>/dev/null | grep -c "breaker_open"; true)
 
 echo "Final socket_stale: $STALE" >> "$EVIDENCE_FILE"
 echo "Final socket_reconnect: $RECONNECT" >> "$EVIDENCE_FILE"

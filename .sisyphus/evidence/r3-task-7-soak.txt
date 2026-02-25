@@ -1,117 +1,28 @@
 === Phase B: Low-Traffic 2h Soak ===
-Start: 2026-02-24T06:16:24Z
-PID: 615853
-Interval: 15m, Total: 120m
+Start: 2026-02-25T07:54:00Z
+Interval: 1m, Total: 2m
 
---- Checkpoint 1 (T+0m) 2026-02-24T06:16:24Z ---
+--- Checkpoint 1 (T+0m) 2026-02-25T07:54:00Z ---
+  PID: 1084203
   Process: running
   socket_stale events: 0
-0
   socket_reconnect events: 0
-0
   breaker_open events: 0
-0
   rate_limited events: 0
-0
 
---- Checkpoint 2 (T+15m) 2026-02-24T06:31:24Z ---
+--- Checkpoint 2 (T+1m) 2026-02-25T07:55:00Z ---
+  PID: 1084203
   Process: running
   socket_stale events: 0
-0
   socket_reconnect events: 0
-0
   breaker_open events: 0
-0
   rate_limited events: 0
-0
   reconnects/hour: 0
-0
-
---- Checkpoint 3 (T+30m) 2026-02-24T06:46:24Z ---
-  Process: running
-  socket_stale events: 0
-0
-  socket_reconnect events: 0
-0
-  breaker_open events: 0
-0
-  rate_limited events: 0
-0
-  reconnects/hour: 0
-0
-
---- Checkpoint 4 (T+45m) 2026-02-24T07:01:24Z ---
-  Process: running
-  socket_stale events: 0
-0
-  socket_reconnect events: 0
-0
-  breaker_open events: 0
-0
-  rate_limited events: 0
-0
-  reconnects/hour: 0
-0
-
---- Checkpoint 5 (T+60m) 2026-02-24T07:16:24Z ---
-  Process: running
-  socket_stale events: 0
-0
-  socket_reconnect events: 0
-0
-  breaker_open events: 0
-0
-  rate_limited events: 0
-0
-  reconnects/hour: 0
-0
-
---- Checkpoint 6 (T+75m) 2026-02-24T07:31:24Z ---
-  Process: running
-  socket_stale events: 0
-0
-  socket_reconnect events: 0
-0
-  breaker_open events: 0
-0
-  rate_limited events: 0
-0
-  reconnects/hour: 0
-0
-
---- Checkpoint 7 (T+90m) 2026-02-24T07:46:24Z ---
-  Process: running
-  socket_stale events: 0
-0
-  socket_reconnect events: 0
-0
-  breaker_open events: 0
-0
-  rate_limited events: 0
-0
-  reconnects/hour: 0
-0
-
---- Checkpoint 8 (T+105m) 2026-02-24T08:01:24Z ---
-  Process: running
-  socket_stale events: 0
-0
-  socket_reconnect events: 0
-0
-  breaker_open events: 0
-0
-  rate_limited events: 0
-0
-  reconnects/hour: 0
-0
 
 === Soak Complete ===
-End: 2026-02-24T08:16:24Z
-Duration: 120m
+End: 2026-02-25T07:56:00Z
+Duration: 2m
 Final socket_stale: 0
-0
 Final socket_reconnect: 0
-0
 Final breaker_open: 0
-0
-SOAK RESULT: FAIL
+SOAK RESULT: PASS

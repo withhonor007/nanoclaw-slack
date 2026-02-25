@@ -1,0 +1,26 @@
+=== T6: Round-4 Naming Normalization ===
+Date: 2026-02-25T08:12:49Z
+
+== Changes Made ==
+1. scripts/slack/canary-checkpoint.sh line 26:
+   BEFORE: EVIDENCE_FILE="$EVIDENCE_DIR/r3-canary-${TIMESTAMP_FILE}.json"
+   AFTER:  EVIDENCE_FILE="$EVIDENCE_DIR/r4-canary-${TIMESTAMP_FILE}.json"
+
+2. scripts/slack/soak-monitor.sh line 7:
+   BEFORE: EVIDENCE_FILE=".sisyphus/evidence/r3-task-7-soak.txt"
+   AFTER:  EVIDENCE_FILE=".sisyphus/evidence/r4-soak.txt"
+
+== Verification: No r3- Remaining ==
+grep r3- scripts/slack/canary-checkpoint.sh: (no output)
+grep r3- scripts/slack/soak-monitor.sh: (no output)
+
+== Syntax Check ==
+bash -n scripts/slack/canary-checkpoint.sh: OK
+bash -n scripts/slack/soak-monitor.sh: OK
+
+== Functional Check ==
+canary-checkpoint.sh --dry-run: executed, produced JSON output with r4- evidence path
+soak-monitor.sh 1 1: started, wrote to .sisyphus/evidence/r4-soak.txt (confirmed)
+
+== Result ==
+PASS - All r3- references replaced with r4- naming. Both scripts functional.

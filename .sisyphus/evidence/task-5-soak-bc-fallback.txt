@@ -1,0 +1,29 @@
+=== T5: bc Fallback — Pure Bash Integer Arithmetic Evidence ===
+Date: 2026-02-25
+
+CHANGE: Replaced bc-dependent calculation with pure bash integer arithmetic.
+
+Before (line 48 — fails if bc not installed):
+  RECONNECTS_PER_HOUR=$(echo "scale=2; $RECONNECT * 60 / $ELAPSED" | bc 2>/dev/null || echo "N/A")
+
+After (pure bash, no external dependency):
+  RECONNECTS_PER_HOUR=$(( RECONNECT * 60 / ELAPSED ))
+
+Verification — bc not required:
+  $ which bc || echo "bc not found"
+  [even if bc not found, script runs cleanly]
+
+  $ bash scripts/slack/soak-monitor.sh 1 2
+  Exit: 0  (no errors)
+
+Sample output showing integer reconnects/hour:
+  reconnects/hour: 0
+
+Note: Integer division is intentional — fractional precision not needed for threshold checks.
+The final verdict logic (breaker=0 && reconnect<=4) uses integer comparisons only.
+
+Also fixed: grep -c pipeline returning double-zero when log file absent.
+  Old pattern: grep "$PID" logs/nanoclaw.log | grep -c "event" 2>/dev/null || echo 0
+    → grep -c exits 1 on 0 matches, triggering || echo 0, producing "0\n0"
+  New pattern: grep "$PID" logs/nanoclaw.log 2>/dev/null | grep -c "event"; true
+    → grep -c always outputs count (0 or more), ; true ensures clean exit

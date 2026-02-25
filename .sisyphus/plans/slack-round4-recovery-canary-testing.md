@@ -137,7 +137,7 @@ Wave 2 (Recovery coverage + execution, 6 tasks):
 
 ## TODOs
 
-- [ ] 1. Baseline Assumption Verification Pack
+- [x] 1. Baseline Assumption Verification Pack
 
   **What to do**:
   - Verify current mode, snapshot availability, and test/build baseline before Round-4 work.
@@ -199,7 +199,7 @@ Wave 2 (Recovery coverage + execution, 6 tasks):
 
   **Commit**: NO
 
-- [ ] 2. Fix `canary-checkpoint.sh` Log Parsing and PID Correlation
+- [x] 2. Fix `canary-checkpoint.sh` Log Parsing and PID Correlation
 
   **What to do**:
   - Replace brittle PID grep assumptions so metrics match actual pino-pretty output.
@@ -260,7 +260,7 @@ Wave 2 (Recovery coverage + execution, 6 tasks):
   **Commit**: YES (group with T3-T6)
   - Message: `chore(canary): fix checkpoint parsing, gate logic, and soak monitor robustness`
 
-- [ ] 3. Correct C3 Rate-Limit Gate Logic in `canary-checkpoint.sh`
+- [x] 3. Correct C3 Rate-Limit Gate Logic in `canary-checkpoint.sh`
 
   **What to do**:
   - Update C3 to evaluate recovery outcome (rate-limit then successful continuation) rather than presence-only failure.
@@ -320,7 +320,7 @@ Wave 2 (Recovery coverage + execution, 6 tasks):
 
   **Commit**: YES (group with T2, T4-T6)
 
-- [ ] 4. Strengthen C4 Message-Count and Idempotency Gate
+- [x] 4. Strengthen C4 Message-Count and Idempotency Gate
 
   **What to do**:
   - Implement explicit `>=50` processed-message check aligned with W4 criteria.
@@ -380,7 +380,7 @@ Wave 2 (Recovery coverage + execution, 6 tasks):
 
   **Commit**: YES (group with T2, T3, T5, T6)
 
-- [ ] 5. Fix `soak-monitor.sh` PID Refresh and Dependency Robustness
+- [x] 5. Fix `soak-monitor.sh` PID Refresh and Dependency Robustness
 
   **What to do**:
   - Re-discover service PID per checkpoint to survive restarts during soak window.
@@ -441,7 +441,7 @@ Wave 2 (Recovery coverage + execution, 6 tasks):
 
   **Commit**: YES (group with T2-T4, T6)
 
-- [ ] 6. Normalize Round-4 Naming and Script Path References
+- [x] 6. Normalize Round-4 Naming and Script Path References
 
   **What to do**:
   - Replace `r3-` evidence prefixes with Round-4 naming convention.

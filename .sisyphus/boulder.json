@@ -1,9 +1,9 @@
 {
-  "active_plan": "/dev/disk/disk1/clawbot/nanoclaw/.sisyphus/plans/slack-dual-state-api-recovery.md",
-  "started_at": "2026-02-25T06:11:29.143Z",
+  "active_plan": "/dev/disk/disk1/clawbot/nanoclaw/.sisyphus/plans/slack-round4-recovery-canary-testing.md",
+  "started_at": "2026-02-25T07:42:49.554Z",
   "session_ids": [
     "ses_36cd86975ffeU6ev39GsX0Y7Le"
   ],
-  "plan_name": "slack-dual-state-api-recovery",
+  "plan_name": "slack-round4-recovery-canary-testing",
   "agent": "atlas"
 }
