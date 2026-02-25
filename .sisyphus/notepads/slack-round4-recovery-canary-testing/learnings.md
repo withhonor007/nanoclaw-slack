@@ -87,9 +87,30 @@ Integer division is fine for reconnects/hour threshold checks.
 - Failure detail now explicitly reports measured counts (`message_count`, `duplicate_count`, `slack_connected_events`).
 
 ## T6: Round-4 Naming Normalization (2026-02-25)
+
 - Only 2 r3- references existed in active scripts (one per file, as inherited wisdom stated)
 - canary-checkpoint.sh: EVIDENCE_FILE var on line 26
 - soak-monitor.sh: EVIDENCE_FILE var on line 7
 - soak-monitor.sh --dry-run doesn't exist; use `bash scripts/slack/soak-monitor.sh 1 1` for quick test (exits after 1 min)
 - soak-monitor.sh writes evidence file on first checkpoint, confirming new r4-soak.txt path works
 - canary-checkpoint.sh --dry-run skips API calls but still produces full JSON output (good for syntax/path verification)
+
+## T10: Synthetic Outage Drill Runner (2026-02-25)
+
+- `recovery-outage-drill.sh` uses `grep -c '"event":"<key>"'` to count structured log events — reliable for pino JSON output
+- `count_event()` helper wraps grep with `|| true` to avoid set -e failures on zero matches
+- Drill exit codes: 0=pass/dry-run, 1=pre-flight failure, 2=no events (informational)
+- DRILL_STATUS enum: RECOVERY_OBSERVED (≥3 types), PARTIAL_RECOVERY_OBSERVED (1-2), NO_RECOVERY_EVENTS (0)
+- Pure bash arithmetic `$(( a + b ))` used throughout — no bc dependency
+- `--dry-run` skips evidence write and checkpoint execution but runs all scan phases
+- `--help` uses heredoc for clean multi-line output
+- Evidence naming: `r4-drill-{timestamp}.txt` (consistent with r4- convention)
+- Service PID detection: `pgrep -f 'dist/index.js' | head -1 || true` — non-fatal if service down
+- Log scan is non-destructive: read-only grep on logs/nanoclaw.log
+
+## T7-T9: Recovery integration expansion (2026-02-25)
+
+- Throwing `processMessages` follows the same retry path as `false` because `runForGroup` catch routes to `scheduleRetry`.
+- Under fake timers, `Date.now()` advances through backoff windows; gated floor expectations must be captured at exhaustion callback time.
+- `vi.doMock('./config.js')` with dynamic import is a workable way to exercise non-default config branches inside one test file.
+- Slack `onRecovery` behavior is intentionally per-invocation: each call re-enqueues all `slack:` groups, while non-slack JIDs stay excluded.

@@ -501,7 +501,7 @@ Wave 2 (Recovery coverage + execution, 6 tasks):
 
   **Commit**: YES (group with T2-T5)
 
-- [ ] 7. Add Recovery Test for `send_failed_non_delivery` Rollback Behavior
+- [x] 7. Add Recovery Test for `send_failed_non_delivery` Rollback Behavior
 
   **What to do**:
   - Add targeted runtime test coverage for the path where Slack send throws and orchestrator treats it as non-delivery.
@@ -562,7 +562,7 @@ Wave 2 (Recovery coverage + execution, 6 tasks):
   **Commit**: YES (group with T8-T10)
   - Message: `test(recovery): add index-path recovery coverage and outage drill`
 
-- [ ] 8. Add Recovery Test for `cursor_commit_on_exhaustion` Gate Branch
+- [x] 8. Add Recovery Test for `cursor_commit_on_exhaustion` Gate Branch
 
   **What to do**:
   - Add test coverage for `RECOVERY_EXHAUSTED_GATE_MS > 0` branch.
@@ -622,7 +622,7 @@ Wave 2 (Recovery coverage + execution, 6 tasks):
 
   **Commit**: YES (group with T7, T9-T10)
 
-- [ ] 9. Add Recovery Test for Real Slack-Only `onRecovery` Wiring
+- [x] 9. Add Recovery Test for Real Slack-Only `onRecovery` Wiring
 
   **What to do**:
   - Add a test that exercises actual wiring path (not only inline simulation).
@@ -682,7 +682,7 @@ Wave 2 (Recovery coverage + execution, 6 tasks):
 
   **Commit**: YES (group with T7, T8, T10)
 
-- [ ] 10. Implement Synthetic Outage Drill Runner and Evidence Template
+- [x] 10. Implement Synthetic Outage Drill Runner and Evidence Template
 
   **What to do**:
   - Create a repeatable canary drill runner at `scripts/slack/recovery-outage-drill.sh` that exercises outage -> retry exhaustion -> recovery observation.
