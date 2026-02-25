@@ -1,0 +1,21 @@
+=== Deployed Validation Gates ===
+
+--- npm run typecheck ---
+> nanoclaw@1.0.0 typecheck
+> tsc --noEmit
+
+
+--- npm test ---
+ [32m✓[39m src/formatting.test.ts [2m([22m[2m32 tests[22m[2m)[22m[32m 9[2mms[22m[39m
+ [32m✓[39m skills-engine/__tests__/constants.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 3[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m31 passed[39m[22m[90m (31)[39m
+[2m      Tests [22m [1m[32m413 passed[39m[22m[2m | [22m[90m1 todo[39m[90m (414)[39m
+[2m   Start at [22m 07:14:48
+[2m   Duration [22m 3.31s[2m (transform 920ms, setup 0ms, import 2.64s, tests 3.28s, environment 3ms)[22m
+
+
+--- npm run build ---
+> nanoclaw@1.0.0 build
+> tsc
+

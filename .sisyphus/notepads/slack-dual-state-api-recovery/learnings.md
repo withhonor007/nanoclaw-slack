@@ -70,3 +70,10 @@
 - Skill tests in `.claude/skills/add-slack/add/src/` are NOT in the runtime vitest include pattern
 - Runtime vitest only covers `src/`, `setup/`, `skills-engine/`
 - Skill tests must be run separately or via a custom vitest config when the skill is applied
+
+## 2026-02-25 Task: Recovery Integration Outage Test
+- Added src/recovery.integration.test.ts with three runtime-focused scenarios for exhaustion drop and post-outage recovery behavior.
+- Used fake timers to drive full backoff chain (5s, 10s, 20s, 40s, 80s) through MAX_RETRIES=5 and assert callback + state reset semantics.
+- Verified exhaustion does not orphan groups by enqueueing fresh work after drop and asserting processing resumes for same JID.
+- Captured index onRecovery intent conceptually: only slack:-prefixed registered group JIDs are re-enqueued on reconnect.
+- Validation commands: npx vitest run src/recovery.integration.test.ts and npm run typecheck both pass.

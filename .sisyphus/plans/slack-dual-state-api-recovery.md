@@ -252,7 +252,7 @@ Wave 2 (Validation + rollout readiness):
   - Message: `fix(recovery): implement dual-state exhaustion drop and slack recovery bridge`
   - Pre-commit: `npm run typecheck && npm test`
 
-- [ ] 3. Deployed Validation via Skill Application + Integrated Failure Injection
+- [x] 3. Deployed Validation via Skill Application + Integrated Failure Injection
 
   **Execution State**: `deployed`
 
