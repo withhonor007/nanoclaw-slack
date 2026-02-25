@@ -8,6 +8,8 @@ adds:
   - src/channels/reconnect-policy.ts
   - scripts/slack/canary-checkpoint.sh
   - scripts/slack/soak-monitor.sh
+  - scripts/slack/recovery-outage-drill.sh
+  - src/recovery.integration.test.ts
 modifies:
   - src/index.ts
   - src/config.ts
@@ -25,4 +27,4 @@ structured:
     - SLACK_FILTER_BOT_MESSAGES
 conflicts: []
 depends: []
-test: 'npx vitest run src/channels/slack.test.ts'
+test: 'npx vitest run src/channels/slack.test.ts src/recovery.integration.test.ts'
