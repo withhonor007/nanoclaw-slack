@@ -1,5 +1,8 @@
 # Draft: Slack API Recovery Dual-State
 
+> **Status**: Research complete. Final plan at `.sisyphus/plans/slack-dual-state-api-recovery.md` (4 tasks, 2 waves).
+> Original 16-task plan was reviewed and consolidated — see plan document for rationale.
+
 ## Requirements (confirmed)
 - Retry exhaustion must NOT permanently orphan a group.
 - After retry budget is exhausted, the system should discard the currently failing just-received workload.
@@ -58,6 +61,23 @@
 - Default recovery behavior: gate-based defer/resume for new traffic during outage window; no permanent orphan state.
 - Default test strategy: tests-after implementation (vitest), with mandatory agent-executed QA evidence per task.
 - Default scope: include Slack delivery truthfulness fix because it directly affects cursor correctness and no-response symptom.
+
+## User Review Feedback Incorporated
+- Prior plan considered over-engineered (16 tasks + 4 final checks for ~300-500 LOC expected change scope).
+- User requested compact plan while keeping coverage unchanged.
+- User flagged skill-first compliance risk against `.sisyphus/plans/slack-roadmap-next-phase.md` constraints.
+
+## Revised Plan Direction
+- Collapsed to 4 implementation tasks in `.sisyphus/plans/slack-dual-state-api-recovery.md`.
+- Enforced skill-first path:
+  - author changes under `.claude/skills/add-slack/**`
+  - validate in deployed state via skill application flow
+- Kept scope coverage unchanged:
+  - dual-state runtime behavior
+  - cursor discard policy on exhaustion
+  - Slack recovery callback + delivery truthfulness
+  - integrated outage/recovery tests
+  - canary/rollback runbook
 
 ## Scope Boundaries
 - INCLUDE
