@@ -55,10 +55,10 @@ Ship a trustworthy Round-4 canary process for dual-state API recovery by ensurin
 - Round-4 verdict pack and W4 addendum.
 
 ### Definition of Done
-- [ ] Updated canary scripts produce non-vacuous, auditable gate outputs.
-- [ ] Recovery-specific tests added and passing in deployed mode.
-- [ ] Round-4 short canary evidence generated with corrected scripts.
-- [ ] Go/no-go decision table completed with explicit rollback triggers.
+- [x] Updated canary scripts produce non-vacuous, auditable gate outputs.
+- [x] Recovery-specific tests added and passing in deployed mode.
+- [x] Round-4 short canary evidence generated with corrected scripts.
+- [x] Go/no-go decision table completed with explicit rollback triggers.
 
 ### Must Have
 - Fixes for canary tool correctness defects before any Round-4 verdict use.
@@ -871,19 +871,19 @@ Wave 2 (Recovery coverage + execution, 6 tasks):
 
 ## Final Verification Wave (MANDATORY)
 
-- [ ] F1. **Plan Compliance Audit** — `oracle`
+- [x] F1. **Plan Compliance Audit** — `oracle`
   Validate all Must Have / Must NOT Have against actual outputs, scripts, tests, and evidence.
   Output: `Must Have [N/N] | Must NOT Have [N/N] | Tasks [N/N] | VERDICT`
 
-- [ ] F2. **Code Quality Review** — `unspecified-high`
+- [x] F2. **Code Quality Review** — `unspecified-high`
   Run `npm run typecheck`, `npm test`, `npm run build`; scan changed files for anti-patterns and scripting regressions.
   Output: `Build [PASS/FAIL] | Tests [N/N] | Files [N clean/N issues] | VERDICT`
 
-- [ ] F3. **QA Replay Audit** — `unspecified-high`
+- [x] F3. **QA Replay Audit** — `unspecified-high`
   Re-run all task QA scenarios and verify evidence files exist and match expected outputs.
   Output: `Scenarios [N/N pass] | Evidence [N/N found] | VERDICT`
 
-- [ ] F4. **Scope Fidelity Check** — `deep`
+- [x] F4. **Scope Fidelity Check** — `deep`
   Ensure only planned files/concerns changed; detect scope creep or missing planned work.
   Output: `Tasks [N/N compliant] | Scope [CLEAN/N issues] | VERDICT`
 
@@ -909,7 +909,7 @@ bash scripts/slack/soak-monitor.sh 15 120
 ```
 
 ### Final Checklist
-- [ ] Tooling defects fixed and validated (no vacuous PASS)
-- [ ] Recovery-critical branches have executable test coverage
-- [ ] Round-4 canary evidence complete and auditable
-- [ ] Go/no-go decision and rollback trigger matrix finalized
+- [x] Tooling defects fixed and validated (no vacuous PASS)
+- [x] Recovery-critical branches have executable test coverage
+- [x] Round-4 canary evidence complete and auditable
+- [x] Go/no-go decision and rollback trigger matrix finalized
