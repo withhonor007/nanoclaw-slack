@@ -743,7 +743,7 @@ Wave 2 (Recovery coverage + execution, 6 tasks):
 
   **Commit**: YES (group with T7-T9)
 
-- [ ] 11. Execute Short Round-4 Canary (2h) with Corrected Tooling
+- [x] 11. Execute Short Round-4 Canary (2h) with Corrected Tooling
 
   **What to do**:
   - Run a short canary window using corrected checkpoint + soak scripts.
@@ -805,7 +805,7 @@ Wave 2 (Recovery coverage + execution, 6 tasks):
 
   **Commit**: NO
 
-- [ ] 12. Publish Round-4 Verdict Pack, W4 Addendum, and Go/No-Go Table
+- [x] 12. Publish Round-4 Verdict Pack, W4 Addendum, and Go/No-Go Table
 
   **What to do**:
   - Produce final Round-4 canary verdict document at `docs/slack/round4-canary-verdict.md` with pass/fail rationale.

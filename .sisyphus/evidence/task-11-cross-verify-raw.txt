@@ -1,0 +1,9 @@
+pid=1084203
+uptime_seconds=57752
+uptime_etime=16:03:20
+script_rate_limit_count=0
+manual_rate_limit_count=0
+script_send_failed_count=0
+manual_send_failed_count=0
+script_duplicate_count=0
+manual_duplicate_count=0

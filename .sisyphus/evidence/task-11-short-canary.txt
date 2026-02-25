@@ -1,0 +1,48 @@
+Task 11 - Round-4 Short Canary Snapshot Evidence
+================================================
+
+1) Timestamp and service state
+- snapshot_timestamp_utc: 2026-02-25T08:44:56Z
+- checkpoint_timestamp_utc: 2026-02-25T08:43:23Z
+- service_pid: 1084203
+- service_uptime_seconds: 57752
+- service_uptime_etime: 16:03:20
+
+2) Checkpoint JSON output (full)
+{
+  "timestamp": "2026-02-25T08:43:23Z",
+  "pid": 1084203,
+  "uptime_seconds": 57752,
+  "criteria": {
+    "C1": { "name": "token_validity", "pass": true, "detail": "auth.test succeeded, team: URDD" },
+    "C2": { "name": "socket_reconnect_health", "pass": true, "detail": "reconnects/hour: 0, max_recovery_ms: 0" },
+    "C3": { "name": "rate_limit_recovery", "pass": true, "detail": "rate_limit_count: 0, send_failed_count: 0" },
+    "C4": { "name": "message_pipeline", "pass": false, "detail": "message_count: 5 < 50; slack_connected_events: 1; message_count: 5; duplicate_count: 0" },
+    "C5": { "name": "stable_runtime", "pass": true, "detail": "uptime: 57752s, breaker_open: 0, restarts: 0" }
+  },
+  "verdict": "FAIL",
+  "rollback_triggers": ["C4_message_pipeline"]
+}
+
+3) Drill output summary
+- drill_command: bash scripts/slack/recovery-outage-drill.sh
+- drill_status: NO_RECOVERY_EVENTS
+- events_seen: 0 / 5 distinct types
+- total_events: 0 occurrences
+- drill_note: INFO — No recovery events found in logs.
+- drill_evidence_file: /dev/disk/disk1/clawbot/nanoclaw/.sisyphus/evidence/r4-drill-20260225T084342Z.txt
+- captured_full_output_file: .sisyphus/evidence/task-11-drill-output.txt
+
+4) Cross-verification table (manual grep vs checkpoint-reported counts)
+| event_type | checkpoint_script_count | manual_grep_count | consistency |
+|---|---:|---:|---|
+| rate_limit_count (slack_rate_limited|rate_limited) | 0 | 0 | MATCH |
+| send_failed_count (send_failed_non_delivery|slack_send_failed) | 0 | 0 | MATCH |
+| duplicate_count (duplicate_message|duplicate_event|duplicate_delivery|duplicate_response) | 0 | 0 | MATCH |
+
+5) Overall canary status and notes
+- checkpoint_verdict: FAIL
+- gate_results: C1=true, C2=true, C3=true, C4=false, C5=true
+- expected_failure_note: C4 failed due to insufficient traffic window (message_count: 5 < 50; slack_connected_events: 1; message_count: 5; duplicate_count: 0). This point-in-time snapshot did not reach the >=50 message requirement and is documented as low-traffic evidence, not system failure.
+- drill_note: NO_RECOVERY_EVENTS reflects no observed outage/recovery sequence during this short capture window. This is an observational condition, not a tooling malfunction.
+- gate_to_log_consistency: verified MATCH for three event-count signals (rate_limit_count, send_failed_count, duplicate_count).

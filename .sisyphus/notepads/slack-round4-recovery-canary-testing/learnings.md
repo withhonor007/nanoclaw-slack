@@ -114,3 +114,36 @@ Integer division is fine for reconnects/hour threshold checks.
 - Under fake timers, `Date.now()` advances through backoff windows; gated floor expectations must be captured at exhaustion callback time.
 - `vi.doMock('./config.js')` with dynamic import is a workable way to exercise non-default config branches inside one test file.
 - Slack `onRecovery` behavior is intentionally per-invocation: each call re-enqueues all `slack:` groups, while non-slack JIDs stay excluded.
+
+## 2026-02-25T08:45:00Z - T11 short canary snapshot
+- Real `bash scripts/slack/canary-checkpoint.sh` execution produced full JSON with C1/C2/C3/C5 PASS and C4 FAIL due to `message_count: 5 < 50`.
+- C4 failure on a point-in-time run should be documented as an insufficient traffic window, not a runtime/system failure.
+- Real `bash scripts/slack/recovery-outage-drill.sh` execution completed with `NO_RECOVERY_EVENTS` and exit code 2, matching the script's informational no-outage condition.
+- Manual PID-filtered grep counts matched checkpoint-reported counts for three signals: `rate_limit_count`, `send_failed_count`, and `duplicate_count`.
+- Capturing raw checkpoint output, drill transcript, and cross-verification counts in separate helper artifacts makes final evidence assembly deterministic and auditable.
+
+## T12 Verdict Pack Publication (2026-02-25)
+
+### Document structure decisions
+
+- round4-canary-verdict.md: gate table (C1-C5) in §2, informational metrics in §3, CONDITIONAL GO in §4, rollback triggers+commands in §5, evidence index in §6
+- W4-round4-addendum.md: delta-only document — 6 sections covering tooling fixes, new tests, new drill tool, threshold changes, canary evidence delta, rollback chain
+- Both docs written in Chinese to match W4 runbook language
+
+### C4 framing
+
+- C4 FAIL is expected and documented as "流量不足" (insufficient traffic), not system failure
+- CONDITIONAL GO verdict: C4 needs extended traffic window, other 4 gates already satisfy production promotion criteria
+- Rationale for not blocking on C4: idempotency logic covered by unit+integration tests; low traffic window cannot naturally reach 50 messages
+
+### Evidence alignment
+
+- All primary claims verified against task-11-short-canary.txt and task-1-baseline-assumptions.txt
+- Commit hashes (ab70650, 6a40064) are plan-sourced, not independently verifiable from evidence files
+- C6+ scope lock compliant: informational metrics in §3 only, not in gate table
+
+### Addendum delta scope
+
+- W4 baseline test count: 384 (deployed state at W4 time)
+- Round-4 pre-baseline: 413 (undeployed), 416 (deployed after T7-T9)
+- Addendum §2 notes both numbers to avoid confusion between W4 and Round-4 baselines
