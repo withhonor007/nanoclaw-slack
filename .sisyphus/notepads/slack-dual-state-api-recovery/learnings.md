@@ -77,3 +77,13 @@
 - Verified exhaustion does not orphan groups by enqueueing fresh work after drop and asserting processing resumes for same JID.
 - Captured index onRecovery intent conceptually: only slack:-prefixed registered group JIDs are re-enqueued on reconnect.
 - Validation commands: npx vitest run src/recovery.integration.test.ts and npm run typecheck both pass.
+
+## 2026-02-25 Task 4: Runbook Finalization
+
+- Created `docs/slack/dual-state-recovery-runbook.md` with 6 sections: state machine, event taxonomy, canary checklist, rollback procedure, go/no-go table, quick diagnostics
+- Event taxonomy covers 16 structured log events across 3 source files; all verified against grep output
+- Canary gates C1-C3 (static) must all exit 0; C4-C6 (runtime signals) have explicit numeric thresholds (>5 exhaustion_drop/hr, >10 send_failed_non_delivery/hr)
+- Rollback uses `git revert de993c9 --no-edit` then `git revert 5a3f05e --no-edit` (newest-first order)
+- Go/no-go table has 9 rows (C1-C9) covering static gates, runtime signal thresholds, and watchdog health
+- All canary gates confirmed passing: typecheck exit 0, 413 tests pass (1 todo), build exit 0
+- Evidence captured to `.sisyphus/evidence/task-4-runbook-alignment.txt` and `.sisyphus/evidence/task-4-canary-rollback.txt`

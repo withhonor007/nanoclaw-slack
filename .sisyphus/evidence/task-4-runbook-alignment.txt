@@ -1,0 +1,33 @@
+
+[1m[46m RUN [49m[22m [36mv4.0.18 [39m[90m/dev/disk/disk1/clawbot/nanoclaw[39m
+
+ [32m✓[39m src/recovery.integration.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 8[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[32m3 passed[39m[22m[90m (3)[39m
+[2m   Start at [22m 07:20:10
+[2m   Duration [22m 192ms[2m (transform 61ms, setup 0ms, import 84ms, tests 8ms, environment 0ms)[22m
+
+src/group-queue.ts:267:          event: 'exhaustion_drop',
+src/group-queue.ts:277:          { groupJid, err, event: 'exhaustion_drop_callback_error' },
+src/index.ts:220:          logger.error({ group: group.name, chatJid, sendErr, event: 'send_failed_non_delivery' }, 'Message send failed, treating as non-delivery');
+src/index.ts:516:          logger.info({ event: 'slack_recovery_resume' }, 'Slack recovery: re-enqueuing slack groups');
+src/index.ts:589:        event: 'cursor_commit_on_exhaustion',
+src/channels/slack.ts:70:    this.app.event('app_mention', async ({ event }: { event: unknown }) => {
+src/channels/slack.ts:74:    this.app.event('message', async ({ event }: { event: unknown }) => {
+src/channels/slack.ts:81:        { event: 'token_revoked' },
+src/channels/slack.ts:89:        { event: 'app_uninstalled' },
+src/channels/slack.ts:100:        receiver?: { on?: (event: string, fn: () => void) => void };
+src/channels/slack.ts:107:          { event: 'socket_connected', liveness_source: 'socket_event' },
+src/channels/slack.ts:113:          { event: 'socket_disconnected', liveness_source: 'socket_event' },
+src/channels/slack.ts:123:          { event: 'slack_rate_limited', retry_after_s: retryAfter, url },
+src/channels/slack.ts:180:          event: 'slack_send_failed',
+src/channels/slack.ts:303:          { event: 'reconnect_skipped', reason: 'in_flight' },
+src/channels/slack.ts:310:          { event: 'reconnect_skipped', reason: 'breaker_open' },
+src/channels/slack.ts:326:            event: 'breaker_open',
+src/channels/slack.ts:339:          event: 'socket_stale',
+src/channels/slack.ts:360:            event: 'socket_reconnect',
+src/channels/slack.ts:372:          logger.error({ err: recoveryErr, event: 'recovery_callback_error' }, 'Recovery callback failed');
+src/channels/slack.ts:378:            event: 'socket_reconnect_failed',
+src/channels/slack.ts:407:    event: Record<string, unknown>,
+src/channels/slack.ts:482:  private extractContent(event: Record<string, unknown>): string {

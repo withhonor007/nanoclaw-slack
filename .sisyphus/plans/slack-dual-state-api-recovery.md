@@ -321,7 +321,7 @@ Wave 2 (Validation + rollout readiness):
   - Message: `test(recovery): validate deployed outage exhaustion and recovery flow`
   - Pre-commit: `npm run typecheck && npm test && npm run build`
 
-- [ ] 4. Canary Gates, Rollback Procedure, and Runbook Finalization
+- [x] 4. Canary Gates, Rollback Procedure, and Runbook Finalization
 
   **Execution State**: `deployed` then `undeployed` cleanup
 
